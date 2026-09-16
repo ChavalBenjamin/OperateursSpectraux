@@ -1,6 +1,7 @@
 #include "OperateursSpectraux.h"
 #include "IPlug_include_in_plug_src.h"
 #include "IControls.h"
+#include <cmath>
 
 OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 : iplug::Plugin(info, MakeConfig(kNumParams, 1))
@@ -15,6 +16,8 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamHorizon)->InitPercentage("Horizon", 50.);
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
+  GetParam(kParamFeedback)->InitDouble("Feedback", 0., 0., 150., 0.1, "%");
+  GetParam(kParamSyncMode)->InitEnum("Sync", 0, 2, "", IParam::kFlagsNone, "", "Off", "On");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
 #if IPLUG_EDITOR
@@ -32,9 +35,11 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     const IRECT bounds = pGraphics->GetBounds();
     IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 3).GetCentredInside(140.f, 40.f), kParamFFTSize, "FFT Size"));
-    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 3).GetCentredInside(140.f, 40.f), kParamOverlap, "Overlap"));
-    pGraphics->AttachControl(new IVKnobControl(topRow.GetGridCell(0, 2, 1, 3).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle));
+    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 5).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size"));
+    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 5).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap"));
+    pGraphics->AttachControl(new IVKnobControl(topRow.GetGridCell(0, 2, 1, 5).GetCentredInside(50.f), kParamFeedback, "Feedback", knobStyle));
+    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 3, 1, 5).GetCentredInside(100.f, 40.f), kParamSyncMode, "Sync"));
+    pGraphics->AttachControl(new IVKnobControl(topRow.GetGridCell(0, 4, 1, 5).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle));
 
     IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
     pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 0, 1, 6).GetCentredInside(80.f), kParamCycles, "Cycles", knobStyle));
@@ -74,20 +79,18 @@ void OperateursSpectraux::OnIdle()
 void OperateursSpectraux::UpdateFFTConfig()
 {
   int fftSizeIdx = (int)GetParam(kParamFFTSize)->Value();
-  int fftSize = 512 << fftSizeIdx; // 0->512 ... 4->8192
+  int fftSize = 512 << fftSizeIdx;
 
   int overlapIdx = (int)GetParam(kParamOverlap)->Value();
   int overlap = (overlapIdx == 0) ? 2 : 4;
 
-  mFilterL.Init(fftSize, overlap);
-  mFilterR.Init(fftSize, overlap);
-  mFilterL.SetSampleRate(GetSampleRate());
-  mFilterR.SetSampleRate(GetSampleRate());
+  mDelayL.Init(fftSize, overlap, GetSampleRate());
+  mDelayR.Init(fftSize, overlap, GetSampleRate());
 }
 
 void OperateursSpectraux::UpdateEngine()
 {
-  mEngine.SetSize(512); // resolution de la courbe (independante de la taille FFT, interpolee)
+  mEngine.SetSize(512);
   mEngine.SetShapeMode((int)GetParam(kParamShapeMode)->Value() == 0
                           ? SpectralCurveEngine::ShapeMode::Type
                           : SpectralCurveEngine::ShapeMode::Draw);
@@ -113,10 +116,52 @@ void OperateursSpectraux::UpdateEngine()
   mCurveUIUpdated.store(true);
 }
 
+void OperateursSpectraux::UpdateYAxisMarks()
+{
+  if (!mCurveView) return;
+
+  auto msToValue = [](float ms) {
+    float t = std::log(ms / 5.f) / std::log(500.f); // 5ms..2500ms -> 0..1
+    return 2.f * t - 1.f;
+  };
+
+  std::vector<SpectralCurvePreviewControl::AxisMark> marks;
+  bool sync = (int)GetParam(kParamSyncMode)->Value() != 0;
+
+  if (!sync)
+  {
+    const float msMarks[] = { 5.f, 20.f, 100.f, 500.f, 2500.f };
+    const char* labels[] = { "5ms", "20ms", "100ms", "500ms", "2.5s" };
+    for (int i = 0; i < 5; i++)
+      marks.push_back({ msToValue(msMarks[i]), labels[i], i == 2 });
+  }
+  else
+  {
+    // NOTE : GetTempo() est utilise ici pour la premiere fois dans ce
+    // projet sans avoir ete verifie au prealable - a confirmer a la
+    // compilation/l'ecoute.
+    double bpm = GetTempo();
+    if (bpm <= 0.0) bpm = 120.0;
+    double quarterMs = 60000.0 / bpm;
+    double wholeMs = quarterMs * 4.0;
+    static const float divisors[] = { 1.f, 2.f, 4.f, 8.f, 16.f, 32.f, 64.f };
+    static const char* names[] = { "1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64" };
+    for (int i = 0; i < 7; i++)
+    {
+      float ms = (float)(wholeMs / divisors[i]);
+      if (ms < 5.f || ms > 2500.f) continue;
+      marks.push_back({ msToValue(ms), names[i], i == 2 });
+    }
+  }
+
+  mCurveView->SetYAxisMarks(marks);
+}
+
 void OperateursSpectraux::OnReset()
 {
   UpdateFFTConfig();
   UpdateEngine();
+  UpdateYAxisMarks();
   mLimiter.Init(GetSampleRate());
   mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
 }
@@ -127,9 +172,6 @@ void OperateursSpectraux::OnParamChange(int paramIdx)
   {
     case kParamFFTSize:
     case kParamOverlap:
-      // NOTE RT-safety : Init() re-cree les buffers internes (malloc). Un
-      // (tout petit) glitch est possible si change en cours de lecture -
-      // acceptable en usage normal.
       UpdateFFTConfig();
       break;
 
@@ -145,6 +187,10 @@ void OperateursSpectraux::OnParamChange(int paramIdx)
     case kParamHorizon:
     case kParamSkew:
       UpdateEngine();
+      break;
+
+    case kParamSyncMode:
+      UpdateYAxisMarks();
       break;
 
     case kParamLimiterThreshold:
@@ -169,15 +215,27 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
 
   {
     std::lock_guard<std::mutex> lock(mCurveMutex);
-    mFilterL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
-    mFilterR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mDelayL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mDelayR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
   }
 
-  mFilterL.Process(bufL, outL, n);
-  mFilterR.Process(bufR, outR, n);
+  float feedback = (float)(GetParam(kParamFeedback)->Value() / 100.0);
+  bool sync = (int)GetParam(kParamSyncMode)->Value() != 0;
+  double bpm = GetTempo();
+  if (bpm <= 0.0) bpm = 120.0;
+
+  mDelayL.SetFeedback(feedback);
+  mDelayR.SetFeedback(feedback);
+  mDelayL.SetSyncMode(sync);
+  mDelayR.SetSyncMode(sync);
+  mDelayL.SetBPM(bpm);
+  mDelayR.SetBPM(bpm);
+
+  mDelayL.Process(bufL, outL, n);
+  mDelayR.Process(bufR, outR, n);
 
   // Limiteur Brickwall - toujours en toute derniere position, filet de
-  // securite quels que soient les reglages en amont.
+  // securite indispensable vu que le feedback peut depasser 100%.
   mLimiter.ProcessStereo(outL, outR, n);
 
   for (int i = 0; i < n; i++)

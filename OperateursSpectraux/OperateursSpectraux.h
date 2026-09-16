@@ -3,15 +3,15 @@
 #include "IPlug_include_in_plug_hdr.h"
 #include "SpectralCurveEngine.h"
 #include "SpectralCurvePreviewControl.h"
-#include "SpectralFilterEngine.h"
+#include "SpectralDelayEngine.h"
 #include "BrickwallLimiter.h"
 #include <atomic>
 #include <mutex>
 
 // ============================================================================
-// Etape 3 : premier module branche sur du vrai son - Filtre spectral, pilote
-// par la courbe partagee (Cycles/Q/Ballade/Horizon/Skew ou Dessin libre).
-// Stereo (2 instances de SpectralFilterEngine, une par canal).
+// Etape 4 : Delay spectral - chaque bande FFT a son propre temps de retard
+// (5ms a 2.5s), pilote par la courbe partagee, avec feedback et sync BPM.
+// Stereo (2 instances de SpectralDelayEngine, une par canal).
 // ============================================================================
 
 enum EParams
@@ -23,7 +23,9 @@ enum EParams
   kParamBallade,
   kParamHorizon,
   kParamSkew,
-  kParamShapeMode, // 0 = Type (sinus), 1 = Dessin libre
+  kParamShapeMode,        // 0 = Type (sinus), 1 = Dessin libre
+  kParamFeedback,         // 0-150% (peut depasser 100%, le limiteur protege)
+  kParamSyncMode,         // Off/On : la grille bascule ms <-> divisions rythmiques
   kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
   kNumParams
 };
@@ -51,15 +53,14 @@ private:
 #if IPLUG_DSP
   void UpdateFFTConfig();
   void UpdateEngine();
+  void UpdateYAxisMarks();
 
   SpectralCurveEngine mEngine;
-  SpectralFilterEngine mFilterL, mFilterR;
+  SpectralDelayEngine mDelayL, mDelayR;
   BrickwallLimiter mLimiter;
 
   // La courbe (calculee sur le thread interface/parametres) est copiee ici
-  // sous mutex, puis lue par le thread audio a chaque bloc - section
-  // critique tres courte (une simple copie), impact RT negligeable en
-  // pratique pour ce cas d'usage.
+  // sous mutex, puis lue par le thread audio a chaque bloc.
   std::mutex mCurveMutex;
   std::vector<float> mSharedCurve;
 

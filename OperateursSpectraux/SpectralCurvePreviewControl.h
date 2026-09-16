@@ -2,6 +2,7 @@
 
 #include "IControl.h"
 #include <vector>
+#include <string>
 #include <algorithm>
 #include <functional>
 #include <cmath>
@@ -17,12 +18,23 @@
 //  - Sinon (ou une fois le trait relache) : affiche le resultat final
 //    transforme (fourni via SetCurve, mis a jour depuis le thread
 //    interface, jamais depuis l'audio).
+//
+// Axe X : toujours Hz (echelle log, 20Hz a 20kHz), commun a tous les
+// modules. Axe Y : configurable via SetYAxisMarks (dB pour le Filtre,
+// ms/sync pour le Delay...).
 // ============================================================================
 
 class SpectralCurvePreviewControl : public iplug::igraphics::IControl
 {
 public:
   using ShapeChangedFunc = std::function<void(const float*, int)>;
+
+  struct AxisMark
+  {
+    float value; // position sur l'axe -1 a 1 (meme echelle que la courbe)
+    std::string label;
+    bool bold;
+  };
 
   SpectralCurvePreviewControl(const iplug::igraphics::IRECT& bounds, ShapeChangedFunc onShapeChanged = nullptr)
   : IControl(bounds)
@@ -32,6 +44,8 @@ public:
   }
 
   void SetDrawMode(bool drawMode) { mDrawMode = drawMode; SetDirty(false); }
+
+  void SetYAxisMarks(const std::vector<AxisMark>& marks) { mYMarks = marks; SetDirty(false); }
 
   // Resultat final transforme (affiche quand on n'est pas en train de
   // dessiner activement).
@@ -76,28 +90,54 @@ public:
     float h = mRECT.H() * 0.42f;
     float midY = mRECT.MH();
 
-    // --- Reperes Hz (echelle log, 20Hz a 20kHz - meme mapping que le filtre) ---
-    const float freqMarks[] = { 20.f, 100.f, 1000.f, 10000.f, 20000.f };
-    const char* freqLabels[] = { "20Hz", "100Hz", "1kHz", "10kHz", "20kHz" };
-    IText freqText(9.f, IColor(255, 130, 130, 140), "Roboto-Regular", EAlign::Center, EVAlign::Top);
-    for (int m = 0; m < 5; m++)
+    // --- Reperes Hz fins (echelle log, 20Hz a 20kHz) : tous les 20Hz
+    // jusque 100Hz, tous les 100Hz jusque 1000Hz, tous les 1k jusque 10k,
+    // plus un repere a 15k.
+    std::vector<float> minorFreqs;
+    for (float f = 20.f; f <= 100.f; f += 20.f) minorFreqs.push_back(f);
+    for (float f = 200.f; f <= 1000.f; f += 100.f) minorFreqs.push_back(f);
+    for (float f = 2000.f; f <= 10000.f; f += 1000.f) minorFreqs.push_back(f);
+    minorFreqs.push_back(15000.f);
+
+    for (float f : minorFreqs)
     {
-      float logPos = std::log(freqMarks[m] / 20.f) / std::log(20000.f / 20.f);
+      float logPos = std::log(f / 20.f) / std::log(20000.f / 20.f);
       float x = mRECT.L + w * logPos;
-      g.DrawLine(IColor(255, 40, 40, 45), x, mRECT.T, x, mRECT.B, nullptr, 1.f);
-      g.DrawText(freqText, freqLabels[m], IRECT(x - 25.f, mRECT.B - 14.f, x + 25.f, mRECT.B));
+      g.DrawLine(IColor(255, 30, 30, 35), x, mRECT.T, x, mRECT.B, nullptr, 1.f);
     }
 
-    // --- Reperes dB (echelle lineaire, -24 a +24, meme plage que le filtre) ---
-    const float dbMarks[] = { -24.f, -12.f, 0.f, 12.f, 24.f };
-    IText dbText(9.f, IColor(255, 130, 130, 140), "Roboto-Regular", EAlign::Near, EVAlign::Middle);
-    for (int m = 0; m < 5; m++)
+    // --- Reperes Hz majeurs (100Hz/1k/10k), plus gros et plus epais ---
+    const float majorFreqs[] = { 100.f, 1000.f, 10000.f };
+    const char* majorLabels[] = { "100Hz", "1kHz", "10kHz" };
+    IText majorFreqText(12.f, IColor(255, 190, 190, 200), "Roboto-Regular", EAlign::Center, EVAlign::Top);
+    for (int m = 0; m < 3; m++)
     {
-      float y = midY - (dbMarks[m] / 24.f) * h;
-      g.DrawLine(IColor(255, 40, 40, 45), mRECT.L, y, mRECT.R, y, nullptr, 1.f);
-      char buf[16];
-      snprintf(buf, sizeof(buf), "%+.0fdB", dbMarks[m]);
-      g.DrawText(dbText, buf, IRECT(mRECT.L + 2.f, y - 7.f, mRECT.L + 50.f, y + 7.f));
+      float logPos = std::log(majorFreqs[m] / 20.f) / std::log(20000.f / 20.f);
+      float x = mRECT.L + w * logPos;
+      g.DrawLine(IColor(255, 70, 70, 78), x, mRECT.T, x, mRECT.B, nullptr, 2.f);
+      g.DrawText(majorFreqText, majorLabels[m], IRECT(x - 30.f, mRECT.B - 18.f, x + 30.f, mRECT.B));
+    }
+
+    // --- Bornes 20Hz/20kHz (fines) ---
+    const float edgeFreqs[] = { 20.f, 20000.f };
+    const char* edgeLabels[] = { "20Hz", "20kHz" };
+    IText edgeText(9.f, IColor(255, 110, 110, 120), "Roboto-Regular", EAlign::Center, EVAlign::Top);
+    for (int m = 0; m < 2; m++)
+    {
+      float logPos = std::log(edgeFreqs[m] / 20.f) / std::log(20000.f / 20.f);
+      float x = mRECT.L + w * logPos;
+      g.DrawLine(IColor(255, 40, 40, 45), x, mRECT.T, x, mRECT.B, nullptr, 1.f);
+      g.DrawText(edgeText, edgeLabels[m], IRECT(x - 25.f, mRECT.B - 14.f, x + 25.f, mRECT.B));
+    }
+
+    // --- Reperes Y (fournis par l'appelant - dB, ms, ou divisions sync) ---
+    IText yText(9.f, IColor(255, 130, 130, 140), "Roboto-Regular", EAlign::Near, EVAlign::Middle);
+    IText yTextBold(11.f, IColor(255, 190, 190, 200), "Roboto-Regular", EAlign::Near, EVAlign::Middle);
+    for (const auto& mark : mYMarks)
+    {
+      float y = midY - mark.value * h;
+      g.DrawLine(IColor(255, 40, 40, 45), mRECT.L, y, mRECT.R, y, nullptr, mark.bold ? 2.f : 1.f);
+      g.DrawText(mark.bold ? yTextBold : yText, mark.label.c_str(), IRECT(mRECT.L + 2.f, y - 7.f, mRECT.L + 60.f, y + 7.f));
     }
 
     g.DrawLine(IColor(255, 60, 60, 65), mRECT.L, midY, mRECT.R, midY, nullptr, 1.f);
@@ -137,8 +177,6 @@ private:
     float yVal = std::clamp(-(my - mRECT.MH()) / (mRECT.H() * 0.42f), -1.f, 1.f);
     int idx = std::clamp((int)(xFrac * (kDrawResolution - 1)), 0, kDrawResolution - 1);
 
-    // Interpole entre le dernier point et celui-ci, pour eviter les trous
-    // pendant un glissement rapide de la souris.
     if (mLastIdx >= 0 && mLastIdx != idx)
     {
       int lo = std::min(mLastIdx, idx);
@@ -172,6 +210,8 @@ private:
 
   float mResultBuffer[kMaxResultPoints] = { 0.f };
   int mResultSize = 0;
+
+  std::vector<AxisMark> mYMarks;
 
   ShapeChangedFunc mOnShapeChanged;
 };
