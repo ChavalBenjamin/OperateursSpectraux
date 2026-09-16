@@ -21,6 +21,8 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamSyncMode)->InitEnum("Sync", 0, 2, "", IParam::kFlagsNone, "", "Off", "On");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
+  mDrawnShapeStorage.assign(128, 0.f);
+
 #if IPLUG_EDITOR
   mMakeGraphicsFunc = [&]() {
     return MakeGraphics(*this, PLUG_WIDTH, PLUG_HEIGHT, PLUG_FPS,
@@ -52,6 +54,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     IRECT curveArea = IRECT(bounds.L, bounds.T + 180.f, bounds.R, bounds.B).GetPadded(-20.f);
     mCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
+      mDrawnShapeStorage.assign(data, data + size);
       mEngine.SetDrawnShape(data, size);
       UpdateEngine();
     });
@@ -72,6 +75,73 @@ void OperateursSpectraux::OnIdle()
     mCurveView->SetCurve(mCurveUIBuf, mCurveUISize);
     mCurveView->SetDirty(false);
   }
+#endif
+}
+
+// A chaque (re)ouverture de la fenetre : les CONTROLES sont neufs (recrees
+// par mLayoutFunc), meme si le moteur/parametres eux ont deja leur bon
+// etat - il faut donc explicitement repousser mode dessin + courbe
+// dessinee + grille Y vers cette nouvelle fenetre.
+void OperateursSpectraux::SyncUIToState()
+{
+  if (!mCurveView) return;
+
+  bool drawMode = (int)GetParam(kParamShapeMode)->Value() != 0;
+  mCurveView->SetDrawMode(drawMode);
+
+  if (!mDrawnShapeStorage.empty())
+    mCurveView->SetDrawnShapeExternal(mDrawnShapeStorage.data(), (int)mDrawnShapeStorage.size());
+
+#if IPLUG_DSP
+  UpdateYAxisMarks();
+#endif
+}
+
+bool OperateursSpectraux::SerializeState(IByteChunk& chunk) const
+{
+  bool success = SerializeParams(chunk);
+
+  chunk.PutInt32((int)mDrawnShapeStorage.size());
+  for (float v : mDrawnShapeStorage)
+    chunk.Put(&v);
+
+  return success;
+}
+
+int OperateursSpectraux::UnserializeState(const IByteChunk& chunk, int startPos)
+{
+  int pos = UnserializeParams(chunk, startPos);
+
+  int size = 0;
+  pos = chunk.GetInt32(&size, pos);
+  mDrawnShapeStorage.resize(std::max(0, size));
+  for (int i = 0; i < size; i++)
+    pos = chunk.Get(&mDrawnShapeStorage[i], pos);
+
+#if IPLUG_DSP
+  if (!mDrawnShapeStorage.empty())
+    mEngine.SetDrawnShape(mDrawnShapeStorage.data(), (int)mDrawnShapeStorage.size());
+
+  // Les parametres restaures ne redeclenchent pas OnParamChange -
+  // reconfigure donc TOUT explicitement (FFT/Overlap compris), sinon le
+  // moteur reste sur son ancien etat par defaut malgre les boutons
+  // affichant les bonnes valeurs.
+  ApplyAllState();
+#endif
+
+  SyncUIToState();
+
+  return pos;
+}
+
+void OperateursSpectraux::ApplyAllState()
+{
+#if IPLUG_DSP
+  UpdateFFTConfig();
+  UpdateEngine();
+  UpdateYAxisMarks();
+  mLimiter.Init(GetSampleRate());
+  mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
 #endif
 }
 
@@ -121,10 +191,8 @@ void OperateursSpectraux::UpdateYAxisMarks()
 {
   if (!mCurveView) return;
 
-  // Doit correspondre EXACTEMENT a la courbe en puissance de
-  // SpectralDelayEngine (0ms..2500ms, exposant 3) - fonction inverse.
   auto msToValue = [](float ms) {
-    float t = std::pow(std::max(0.f, ms) / 2500.f, 1.f / 3.f); // 0..1
+    float t = std::pow(std::max(0.f, ms) / 2500.f, 1.f / 3.f);
     return 2.f * t - 1.f;
   };
 
@@ -140,9 +208,6 @@ void OperateursSpectraux::UpdateYAxisMarks()
   }
   else
   {
-    // NOTE : GetTempo() est utilise ici pour la premiere fois dans ce
-    // projet sans avoir ete verifie au prealable - a confirmer a la
-    // compilation/l'ecoute.
     double bpm = GetTempo();
     if (bpm <= 0.0) bpm = 120.0;
     double quarterMs = 60000.0 / bpm;
@@ -155,7 +220,6 @@ void OperateursSpectraux::UpdateYAxisMarks()
       if (straightMs >= 0.f && straightMs <= 2500.f)
         marks.push_back({ msToValue(straightMs), names[i], i == 2 });
 
-      // Equivalent ternaire (2/3 de la duree binaire, convention triolet).
       float tripletMs = straightMs * (2.f / 3.f);
       if (tripletMs >= 0.f && tripletMs <= 2500.f)
       {
@@ -170,11 +234,7 @@ void OperateursSpectraux::UpdateYAxisMarks()
 
 void OperateursSpectraux::OnReset()
 {
-  UpdateFFTConfig();
-  UpdateEngine();
-  UpdateYAxisMarks();
-  mLimiter.Init(GetSampleRate());
-  mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
+  ApplyAllState();
 }
 
 void OperateursSpectraux::OnParamChange(int paramIdx)
@@ -245,8 +305,6 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
   mDelayL.Process(bufL, outL, n);
   mDelayR.Process(bufR, outR, n);
 
-  // Limiteur Brickwall - toujours en toute derniere position, filet de
-  // securite indispensable vu que le feedback peut depasser 100%.
   mLimiter.ProcessStereo(outL, outR, n);
 
   for (int i = 0; i < n; i++)

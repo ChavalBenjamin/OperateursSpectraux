@@ -131,8 +131,11 @@ private:
     double wholeMs = quarterMs * 4.0;
     static const float divisors[] = { 1.f, 2.f, 4.f, 8.f, 16.f, 32.f, 64.f };
 
-    float best = kMinDelayMs;
-    float bestDist = 1e9f;
+    // 0 est une cible valide au meme titre que les divisions rythmiques -
+    // sans ca, le plafond bas en mode Sync accroche toujours sur la plus
+    // petite division (64T) au lieu de vraiment atteindre "aucun delai".
+    float best = 0.f;
+    float bestDist = std::abs(ms);
     for (float d : divisors)
     {
       float straightMs = (float)(wholeMs / d);

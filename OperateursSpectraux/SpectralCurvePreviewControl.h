@@ -45,6 +45,16 @@ public:
 
   void SetDrawMode(bool drawMode) { mDrawMode = drawMode; SetDirty(false); }
 
+  // Restaure un dessin depuis l'etat sauvegarde (distinct de DrawPointAt,
+  // qui ne reagit qu'a la souris).
+  void SetDrawnShapeExternal(const float* data, int size)
+  {
+    int n = std::min(size, (int)mDrawnShape.size());
+    for (int i = 0; i < n; i++)
+      mDrawnShape[i] = data[i];
+    SetDirty(false);
+  }
+
   void SetYAxisMarks(const std::vector<AxisMark>& marks) { mYMarks = marks; SetDirty(false); }
 
   // Resultat final transforme (affiche quand on n'est pas en train de

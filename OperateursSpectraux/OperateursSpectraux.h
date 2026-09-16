@@ -10,7 +10,7 @@
 
 // ============================================================================
 // Etape 4 : Delay spectral - chaque bande FFT a son propre temps de retard
-// (5ms a 2.5s), pilote par la courbe partagee, avec feedback et sync BPM.
+// (0ms a 2.5s), pilote par la courbe partagee, avec feedback et sync BPM.
 // Stereo (2 instances de SpectralDelayEngine, une par canal).
 // ============================================================================
 
@@ -39,7 +39,16 @@ public:
   OperateursSpectraux(const InstanceInfo& info);
 
   void OnIdle() override;
+  void OnUIOpen() override { SyncUIToState(); }
   void OnUIClose() override { mCurveView = nullptr; }
+
+  // Sauvegarde/relecture personnalisee : les boutons (parametres) sont
+  // deja geres automatiquement par iPlug2, mais le dessin libre (juste un
+  // tableau de nombres cote plugin) doit etre explicitement ajoute a
+  // l'etat sauvegarde - premiere utilisation de ce mecanisme dans ce
+  // projet, a verifier a la compilation.
+  bool SerializeState(IByteChunk& chunk) const override;
+  int UnserializeState(const IByteChunk& chunk, int startPos) override;
 
 #if IPLUG_DSP
   void ProcessBlock(sample** inputs, sample** outputs, int nFrames) override;
@@ -49,6 +58,14 @@ public:
 
 private:
   SpectralCurvePreviewControl* mCurveView = nullptr;
+
+  // Copie persistante du dessin, cote plugin (independante des
+  // parametres) - c'est elle qu'on sauvegarde/relit, et qu'on repousse
+  // vers la fenetre a chaque ouverture.
+  std::vector<float> mDrawnShapeStorage;
+
+  void ApplyAllState();  // (re)configure completement le moteur - a l'ouverture ET apres restauration d'un projet
+  void SyncUIToState();  // repousse mode dessin + courbe dessinee + grille Y vers la fenetre fraichement (re)creee
 
 #if IPLUG_DSP
   void UpdateFFTConfig();
