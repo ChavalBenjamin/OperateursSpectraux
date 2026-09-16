@@ -101,7 +101,8 @@ bool OperateursSpectraux::SerializeState(IByteChunk& chunk) const
 {
   bool success = SerializeParams(chunk);
 
-  chunk.PutInt32((int)mDrawnShapeStorage.size());
+  int drawnShapeSize = (int)mDrawnShapeStorage.size();
+  chunk.Put(&drawnShapeSize);
   for (float v : mDrawnShapeStorage)
     chunk.Put(&v);
 
@@ -113,7 +114,7 @@ int OperateursSpectraux::UnserializeState(const IByteChunk& chunk, int startPos)
   int pos = UnserializeParams(chunk, startPos);
 
   int size = 0;
-  pos = chunk.GetInt32(&size, pos);
+  pos = chunk.Get(&size, pos);
   mDrawnShapeStorage.resize(std::max(0, size));
   for (int i = 0; i < size; i++)
     pos = chunk.Get(&mDrawnShapeStorage[i], pos);
