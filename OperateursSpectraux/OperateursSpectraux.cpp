@@ -5,10 +5,14 @@
 OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 : iplug::Plugin(info, MakeConfig(kNumParams, 1))
 {
+  GetParam(kParamFFTSize)->InitEnum("FFT Size", 2 /*default = 2048*/, 5, "",
+                                     IParam::kFlagsNone, "", "512", "1024", "2048", "4096", "8192");
+  GetParam(kParamOverlap)->InitEnum("Overlap", 1 /*default = 4x*/, 2, "",
+                                     IParam::kFlagsNone, "", "2x (50%)", "4x (75%)");
   GetParam(kParamCycles)->InitDouble("Cycles", 1., 0., 24., 0.01);
-  GetParam(kParamQ)->InitPercentage("Q", 50.); // 50% = milieu = forme pleine par defaut
+  GetParam(kParamQ)->InitPercentage("Q", 50.);
   GetParam(kParamBallade)->InitPercentage("Ballade", 0.);
-  GetParam(kParamHorizon)->InitPercentage("Horizon", 50.); // 50% = symetrique par defaut
+  GetParam(kParamHorizon)->InitPercentage("Horizon", 50.);
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
 
@@ -26,8 +30,11 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
     const IVStyle knobStyle = DEFAULT_STYLE.WithLabelText(IText(10.f, COLOR_WHITE));
 
     const IRECT bounds = pGraphics->GetBounds();
-    IRECT controlsRow = bounds.GetFromTop(120.f).GetPadded(-15.f);
+    IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
+    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 2).GetCentredInside(140.f, 40.f), kParamFFTSize, "FFT Size"));
+    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 2).GetCentredInside(140.f, 40.f), kParamOverlap, "Overlap"));
 
+    IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
     pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 0, 1, 6).GetCentredInside(80.f), kParamCycles, "Cycles", knobStyle));
     pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 1, 1, 6).GetCentredInside(80.f), kParamQ, "Q", knobStyle));
     pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 2, 1, 6).GetCentredInside(80.f), kParamBallade, "Ballade", knobStyle));
@@ -35,8 +42,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
     pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 4, 1, 6).GetCentredInside(80.f), kParamSkew, "Skew", knobStyle));
     pGraphics->AttachControl(new IVMenuButtonControl(controlsRow.GetGridCell(0, 5, 1, 6).GetCentredInside(120.f, 40.f), kParamShapeMode, "Forme"));
 
-    // Fenetre unique : dessin et resultat final partagent la meme zone.
-    IRECT curveArea = IRECT(bounds.L, bounds.T + 120.f, bounds.R, bounds.B).GetPadded(-20.f);
+    IRECT curveArea = IRECT(bounds.L, bounds.T + 180.f, bounds.R, bounds.B).GetPadded(-20.f);
     mCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
       mEngine.SetDrawnShape(data, size);
       UpdateEngine();
@@ -63,9 +69,23 @@ void OperateursSpectraux::OnIdle()
 
 #if IPLUG_DSP
 
+void OperateursSpectraux::UpdateFFTConfig()
+{
+  int fftSizeIdx = (int)GetParam(kParamFFTSize)->Value();
+  int fftSize = 512 << fftSizeIdx; // 0->512 ... 4->8192
+
+  int overlapIdx = (int)GetParam(kParamOverlap)->Value();
+  int overlap = (overlapIdx == 0) ? 2 : 4;
+
+  mFilterL.Init(fftSize, overlap);
+  mFilterR.Init(fftSize, overlap);
+  mFilterL.SetSampleRate(GetSampleRate());
+  mFilterR.SetSampleRate(GetSampleRate());
+}
+
 void OperateursSpectraux::UpdateEngine()
 {
-  mEngine.SetSize(512); // resolution de l'apercu pour l'instant (pas encore lie a une taille FFT)
+  mEngine.SetSize(512); // resolution de la courbe (independante de la taille FFT, interpolee)
   mEngine.SetShapeMode((int)GetParam(kParamShapeMode)->Value() == 0
                           ? SpectralCurveEngine::ShapeMode::Type
                           : SpectralCurveEngine::ShapeMode::Draw);
@@ -77,15 +97,23 @@ void OperateursSpectraux::UpdateEngine()
 
   mEngine.RebuildIfNeeded();
 
-  mCurveUISize = mEngine.GetSize();
   const float* curve = mEngine.GetCurve();
-  for (int i = 0; i < mCurveUISize; i++)
+  int size = mEngine.GetSize();
+
+  {
+    std::lock_guard<std::mutex> lock(mCurveMutex);
+    mSharedCurve.assign(curve, curve + size);
+  }
+
+  mCurveUISize = size;
+  for (int i = 0; i < size; i++)
     mCurveUIBuf[i] = curve[i];
   mCurveUIUpdated.store(true);
 }
 
 void OperateursSpectraux::OnReset()
 {
+  UpdateFFTConfig();
   UpdateEngine();
 }
 
@@ -93,6 +121,14 @@ void OperateursSpectraux::OnParamChange(int paramIdx)
 {
   switch (paramIdx)
   {
+    case kParamFFTSize:
+    case kParamOverlap:
+      // NOTE RT-safety : Init() re-cree les buffers internes (malloc). Un
+      // (tout petit) glitch est possible si change en cours de lecture -
+      // acceptable en usage normal.
+      UpdateFFTConfig();
+      break;
+
     case kParamShapeMode:
       if (mCurveView)
         mCurveView->SetDrawMode((int)GetParam(kParamShapeMode)->Value() != 0);
@@ -106,6 +142,7 @@ void OperateursSpectraux::OnParamChange(int paramIdx)
     case kParamSkew:
       UpdateEngine();
       break;
+
     default:
       break;
   }
@@ -113,11 +150,28 @@ void OperateursSpectraux::OnParamChange(int paramIdx)
 
 void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
 {
-  // Etape 2 : passthrough pur, aucun traitement audio pour l'instant.
-  for (int i = 0; i < nFrames; i++)
+  static float bufL[8192], bufR[8192], outL[8192], outR[8192];
+  int n = std::min(nFrames, 8192);
+
+  for (int i = 0; i < n; i++)
   {
-    outputs[0][i] = inputs[0][i];
-    outputs[1][i] = inputs[1][i];
+    bufL[i] = (float)inputs[0][i];
+    bufR[i] = (float)inputs[1][i];
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(mCurveMutex);
+    mFilterL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mFilterR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+  }
+
+  mFilterL.Process(bufL, outL, n);
+  mFilterR.Process(bufR, outR, n);
+
+  for (int i = 0; i < n; i++)
+  {
+    outputs[0][i] = outL[i];
+    outputs[1][i] = outR[i];
   }
 }
 
