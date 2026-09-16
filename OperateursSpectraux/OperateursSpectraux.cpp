@@ -38,19 +38,30 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     const IRECT bounds = pGraphics->GetBounds();
     IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 5).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size"));
-    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 5).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap"));
-    pGraphics->AttachControl(new IVKnobControl(topRow.GetGridCell(0, 2, 1, 5).GetCentredInside(50.f), kParamFeedback, "Feedback", knobStyle));
-    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 3, 1, 5).GetCentredInside(100.f, 40.f), kParamSyncMode, "Sync"));
-    pGraphics->AttachControl(new IVKnobControl(topRow.GetGridCell(0, 4, 1, 5).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle));
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 5).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
+    pGraphics->AttachControl(mParamControls[kParamFFTSize]);
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 5).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
+    pGraphics->AttachControl(mParamControls[kParamOverlap]);
+    mParamControls[kParamFeedback] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 5).GetCentredInside(50.f), kParamFeedback, "Feedback", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamFeedback]);
+    mParamControls[kParamSyncMode] = new IVMenuButtonControl(topRow.GetGridCell(0, 3, 1, 5).GetCentredInside(100.f, 40.f), kParamSyncMode, "Sync");
+    pGraphics->AttachControl(mParamControls[kParamSyncMode]);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 5).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
     IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
-    pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 0, 1, 6).GetCentredInside(80.f), kParamCycles, "Cycles", knobStyle));
-    pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 1, 1, 6).GetCentredInside(80.f), kParamQ, "Q", knobStyle));
-    pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 2, 1, 6).GetCentredInside(80.f), kParamBallade, "Ballade", knobStyle));
-    pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 3, 1, 6).GetCentredInside(80.f), kParamHorizon, "Horizon", knobStyle));
-    pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 4, 1, 6).GetCentredInside(80.f), kParamSkew, "Skew", knobStyle));
-    pGraphics->AttachControl(new IVMenuButtonControl(controlsRow.GetGridCell(0, 5, 1, 6).GetCentredInside(120.f, 40.f), kParamShapeMode, "Forme"));
+    mParamControls[kParamCycles] = new IVKnobControl(controlsRow.GetGridCell(0, 0, 1, 6).GetCentredInside(80.f), kParamCycles, "Cycles", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamCycles]);
+    mParamControls[kParamQ] = new IVKnobControl(controlsRow.GetGridCell(0, 1, 1, 6).GetCentredInside(80.f), kParamQ, "Q", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamQ]);
+    mParamControls[kParamBallade] = new IVKnobControl(controlsRow.GetGridCell(0, 2, 1, 6).GetCentredInside(80.f), kParamBallade, "Ballade", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamBallade]);
+    mParamControls[kParamHorizon] = new IVKnobControl(controlsRow.GetGridCell(0, 3, 1, 6).GetCentredInside(80.f), kParamHorizon, "Horizon", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamHorizon]);
+    mParamControls[kParamSkew] = new IVKnobControl(controlsRow.GetGridCell(0, 4, 1, 6).GetCentredInside(80.f), kParamSkew, "Skew", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamSkew]);
+    mParamControls[kParamShapeMode] = new IVMenuButtonControl(controlsRow.GetGridCell(0, 5, 1, 6).GetCentredInside(120.f, 40.f), kParamShapeMode, "Forme");
+    pGraphics->AttachControl(mParamControls[kParamShapeMode]);
 
     IRECT curveArea = IRECT(bounds.L, bounds.T + 180.f, bounds.R, bounds.B).GetPadded(-20.f);
     mCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
@@ -84,6 +95,15 @@ void OperateursSpectraux::OnIdle()
 // dessinee + grille Y vers cette nouvelle fenetre.
 void OperateursSpectraux::SyncUIToState()
 {
+  // Force chaque potard/bouton a se resynchroniser visuellement depuis sa
+  // vraie valeur - sans ca, apres restauration d'un projet, le son et le
+  // texte affiche sont corrects mais la ROTATION visuelle reste a zero.
+  for (int i = 0; i < kNumParams; i++)
+  {
+    if (mParamControls[i])
+      mParamControls[i]->SetValueFromDelegate(GetParam(i)->GetNormalized());
+  }
+
   if (!mCurveView) return;
 
   bool drawMode = (int)GetParam(kParamShapeMode)->Value() != 0;

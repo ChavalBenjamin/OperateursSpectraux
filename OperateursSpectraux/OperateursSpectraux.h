@@ -40,7 +40,7 @@ public:
 
   void OnIdle() override;
   void OnUIOpen() override { SyncUIToState(); }
-  void OnUIClose() override { mCurveView = nullptr; }
+  void OnUIClose() override { mCurveView = nullptr; for (auto& c : mParamControls) c = nullptr; }
 
   // Sauvegarde/relecture personnalisee : les boutons (parametres) sont
   // deja geres automatiquement par iPlug2, mais le dessin libre (juste un
@@ -58,6 +58,11 @@ public:
 
 private:
   SpectralCurvePreviewControl* mCurveView = nullptr;
+
+  // Un pointeur par parametre lie a un controle visuel (potard/bouton) -
+  // permet de forcer leur resynchronisation visuelle apres restauration
+  // d'un projet, meme quand la vraie valeur (et le son) sont deja corrects.
+  IControl* mParamControls[kNumParams] = { nullptr };
 
   // Copie persistante du dessin, cote plugin (independante des
   // parametres) - c'est elle qu'on sauvegarde/relit, et qu'on repousse
