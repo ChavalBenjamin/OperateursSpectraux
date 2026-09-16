@@ -4,6 +4,7 @@
 #include "SpectralCurveEngine.h"
 #include "SpectralCurvePreviewControl.h"
 #include "SpectralFilterEngine.h"
+#include "BrickwallLimiter.h"
 #include <atomic>
 #include <mutex>
 
@@ -23,6 +24,7 @@ enum EParams
   kParamHorizon,
   kParamSkew,
   kParamShapeMode, // 0 = Type (sinus), 1 = Dessin libre
+  kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
   kNumParams
 };
 
@@ -52,6 +54,7 @@ private:
 
   SpectralCurveEngine mEngine;
   SpectralFilterEngine mFilterL, mFilterR;
+  BrickwallLimiter mLimiter;
 
   // La courbe (calculee sur le thread interface/parametres) est copiee ici
   // sous mutex, puis lue par le thread audio a chaque bloc - section

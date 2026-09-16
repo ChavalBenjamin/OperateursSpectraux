@@ -15,6 +15,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamHorizon)->InitPercentage("Horizon", 50.);
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
+  GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
 #if IPLUG_EDITOR
   mMakeGraphicsFunc = [&]() {
@@ -31,8 +32,9 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     const IRECT bounds = pGraphics->GetBounds();
     IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 2).GetCentredInside(140.f, 40.f), kParamFFTSize, "FFT Size"));
-    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 2).GetCentredInside(140.f, 40.f), kParamOverlap, "Overlap"));
+    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 3).GetCentredInside(140.f, 40.f), kParamFFTSize, "FFT Size"));
+    pGraphics->AttachControl(new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 3).GetCentredInside(140.f, 40.f), kParamOverlap, "Overlap"));
+    pGraphics->AttachControl(new IVKnobControl(topRow.GetGridCell(0, 2, 1, 3).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle));
 
     IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
     pGraphics->AttachControl(new IVKnobControl(controlsRow.GetGridCell(0, 0, 1, 6).GetCentredInside(80.f), kParamCycles, "Cycles", knobStyle));
@@ -115,6 +117,8 @@ void OperateursSpectraux::OnReset()
 {
   UpdateFFTConfig();
   UpdateEngine();
+  mLimiter.Init(GetSampleRate());
+  mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
 }
 
 void OperateursSpectraux::OnParamChange(int paramIdx)
@@ -143,6 +147,10 @@ void OperateursSpectraux::OnParamChange(int paramIdx)
       UpdateEngine();
       break;
 
+    case kParamLimiterThreshold:
+      mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
+      break;
+
     default:
       break;
   }
@@ -167,6 +175,10 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
 
   mFilterL.Process(bufL, outL, n);
   mFilterR.Process(bufR, outR, n);
+
+  // Limiteur Brickwall - toujours en toute derniere position, filet de
+  // securite quels que soient les reglages en amont.
+  mLimiter.ProcessStereo(outL, outR, n);
 
   for (int i = 0; i < n; i++)
   {
