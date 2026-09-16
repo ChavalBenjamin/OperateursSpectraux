@@ -26,7 +26,12 @@ public:
   void SetSize(int numPoints)
   {
     numPoints = std::max(2, numPoints);
-    if (numPoints != mNumPoints)
+    // "|| mCurve.empty()" est essentiel : sans ca, le tout premier appel
+    // (quand numPoints correspond deja a la valeur par defaut du membre)
+    // ne redimensionne jamais le vecteur, qui reste vide alors que le
+    // reste du code croit qu'il contient mNumPoints elements - ecriture
+    // hors limites garantie au premier RebuildIfNeeded().
+    if (numPoints != mNumPoints || mCurve.empty())
     {
       mNumPoints = numPoints;
       mCurve.assign(mNumPoints, 0.f);
