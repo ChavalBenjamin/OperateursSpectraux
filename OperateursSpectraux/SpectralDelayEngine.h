@@ -161,10 +161,11 @@ private:
     float frac = pos - (float)idx0;
     float curveVal = mCurve[idx0] * (1.f - frac) + mCurve[idx1] * frac; // -1..1
 
-    // -1..1 -> 5ms..2500ms sur une echelle log (le rapport est enorme,
-    // une echelle lineaire rendrait tout le bas de la plage inutilisable).
+    // -1..1 -> 0ms..2500ms via une courbe en puissance : garde un
+    // "ressenti" log (beaucoup de resolution en bas), tout en touchant
+    // vraiment 0 (impossible avec un vrai log, qui ne peut pas atteindre 0).
     float t = (curveVal + 1.f) * 0.5f; // 0..1
-    float ms = kMinDelayMs * std::pow(kMaxDelayMs / kMinDelayMs, t);
+    float ms = kMaxDelayMs * std::pow(t, kDelayCurveExponent);
 
     if (mSyncMode) ms = SnapToNearestSyncMs(ms);
 
@@ -184,21 +185,36 @@ private:
     for (int k = 0; k <= numBins; k++)
     {
       float delayMs = GetDelayMsForBin(k);
-      int delayHops = std::clamp((int)std::round(delayMs / mHopDurationMs), 1, mMaxDelayHops - 1);
 
-      int readIdx = (mHistoryWritePos[k] - delayHops + mMaxDelayHops) % mMaxDelayHops;
-      cplx delayed = mBinHistory[k][readIdx];
+      if (delayMs < mHopDurationMs * 0.5f)
+      {
+        // "Pas de delai" reel (pas juste le plus petit delai possible) :
+        // la bande reste totalement seche, aucun feedback. On alimente
+        // quand meme l'historique (valeur brute, sans feedback) pour que
+        // les bandes voisines avec delai restent coherentes si la courbe
+        // change de forme.
+        mBinHistory[k][mHistoryWritePos[k]] = mCplx[k];
+        mHistoryWritePos[k] = (mHistoryWritePos[k] + 1) % mMaxDelayHops;
+      }
+      else
+      {
+        int delayHops = std::clamp((int)std::round(delayMs / mHopDurationMs), 1, mMaxDelayHops - 1);
 
-      cplx mixed = mCplx[k] + delayed * mFeedback;
+        int readIdx = (mHistoryWritePos[k] - delayHops + mMaxDelayHops) % mMaxDelayHops;
+        cplx delayed = mBinHistory[k][readIdx];
 
-      // Ecrit ce qui vient d'etre mixe (pas seulement l'entree) - c'est
-      // ce qui permet au feedback de s'accumuler au fil des repetitions.
-      mBinHistory[k][mHistoryWritePos[k]] = mixed;
-      mHistoryWritePos[k] = (mHistoryWritePos[k] + 1) % mMaxDelayHops;
+        cplx mixed = mCplx[k] + delayed * mFeedback;
 
-      mCplx[k] = mixed;
+        // Ecrit ce qui vient d'etre mixe (pas seulement l'entree) - c'est
+        // ce qui permet au feedback de s'accumuler au fil des repetitions.
+        mBinHistory[k][mHistoryWritePos[k]] = mixed;
+        mHistoryWritePos[k] = (mHistoryWritePos[k] + 1) % mMaxDelayHops;
+
+        mCplx[k] = mixed;
+      }
+
       if (k > 0 && k < numBins)
-        mCplx[mFFTSize - k] = std::conj(mixed);
+        mCplx[mFFTSize - k] = std::conj(mCplx[k]);
     }
 
     FFT(mCplx, true);
@@ -213,7 +229,8 @@ private:
   }
 
   static constexpr float kPi = 3.14159265358979323846f;
-  static constexpr float kMinDelayMs = 5.f;
+  static constexpr float kMinDelayMs = 0.f;
+  static constexpr float kDelayCurveExponent = 3.f; // courbe en puissance (pas log, qui ne peut pas toucher 0)
   static constexpr float kMaxDelayMs = 2500.f;
 
   int mFFTSize = 1024;

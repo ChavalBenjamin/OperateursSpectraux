@@ -2,6 +2,7 @@
 #include "IPlug_include_in_plug_src.h"
 #include "IControls.h"
 #include <cmath>
+#include <string>
 
 OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 : iplug::Plugin(info, MakeConfig(kNumParams, 1))
@@ -120,8 +121,10 @@ void OperateursSpectraux::UpdateYAxisMarks()
 {
   if (!mCurveView) return;
 
+  // Doit correspondre EXACTEMENT a la courbe en puissance de
+  // SpectralDelayEngine (0ms..2500ms, exposant 3) - fonction inverse.
   auto msToValue = [](float ms) {
-    float t = std::log(ms / 5.f) / std::log(500.f); // 5ms..2500ms -> 0..1
+    float t = std::pow(std::max(0.f, ms) / 2500.f, 1.f / 3.f); // 0..1
     return 2.f * t - 1.f;
   };
 
@@ -130,8 +133,8 @@ void OperateursSpectraux::UpdateYAxisMarks()
 
   if (!sync)
   {
-    const float msMarks[] = { 5.f, 20.f, 100.f, 500.f, 2500.f };
-    const char* labels[] = { "5ms", "20ms", "100ms", "500ms", "2.5s" };
+    const float msMarks[] = { 0.f, 20.f, 100.f, 500.f, 2500.f };
+    const char* labels[] = { "0ms", "20ms", "100ms", "500ms", "2.5s" };
     for (int i = 0; i < 5; i++)
       marks.push_back({ msToValue(msMarks[i]), labels[i], i == 2 });
   }
@@ -148,9 +151,17 @@ void OperateursSpectraux::UpdateYAxisMarks()
     static const char* names[] = { "1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64" };
     for (int i = 0; i < 7; i++)
     {
-      float ms = (float)(wholeMs / divisors[i]);
-      if (ms < 5.f || ms > 2500.f) continue;
-      marks.push_back({ msToValue(ms), names[i], i == 2 });
+      float straightMs = (float)(wholeMs / divisors[i]);
+      if (straightMs >= 0.f && straightMs <= 2500.f)
+        marks.push_back({ msToValue(straightMs), names[i], i == 2 });
+
+      // Equivalent ternaire (2/3 de la duree binaire, convention triolet).
+      float tripletMs = straightMs * (2.f / 3.f);
+      if (tripletMs >= 0.f && tripletMs <= 2500.f)
+      {
+        std::string tName = std::string(names[i]) + "T";
+        marks.push_back({ msToValue(tripletMs), tName, false });
+      }
     }
   }
 

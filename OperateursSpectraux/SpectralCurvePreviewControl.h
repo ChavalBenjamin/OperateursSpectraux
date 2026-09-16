@@ -133,11 +133,17 @@ public:
     // --- Reperes Y (fournis par l'appelant - dB, ms, ou divisions sync) ---
     IText yText(9.f, IColor(255, 130, 130, 140), "Roboto-Regular", EAlign::Near, EVAlign::Middle);
     IText yTextBold(11.f, IColor(255, 190, 190, 200), "Roboto-Regular", EAlign::Near, EVAlign::Middle);
+    // Divisions ternaires (label finissant par "T") en teinte ambree, pour
+    // les distinguer d'un coup d'oeil des divisions binaires.
+    IText yTextTernary(9.f, IColor(255, 200, 160, 100), "Roboto-Regular", EAlign::Near, EVAlign::Middle);
     for (const auto& mark : mYMarks)
     {
+      bool isTernary = !mark.label.empty() && mark.label.back() == 'T';
       float y = midY - mark.value * h;
-      g.DrawLine(IColor(255, 40, 40, 45), mRECT.L, y, mRECT.R, y, nullptr, mark.bold ? 2.f : 1.f);
-      g.DrawText(mark.bold ? yTextBold : yText, mark.label.c_str(), IRECT(mRECT.L + 2.f, y - 7.f, mRECT.L + 60.f, y + 7.f));
+      IColor lineColor = isTernary ? IColor(255, 90, 70, 45) : IColor(255, 40, 40, 45);
+      g.DrawLine(lineColor, mRECT.L, y, mRECT.R, y, nullptr, mark.bold ? 2.f : 1.f);
+      const IText& text = isTernary ? yTextTernary : (mark.bold ? yTextBold : yText);
+      g.DrawText(text, mark.label.c_str(), IRECT(mRECT.L + 2.f, y - 7.f, mRECT.L + 60.f, y + 7.f));
     }
 
     g.DrawLine(IColor(255, 60, 60, 65), mRECT.L, midY, mRECT.R, midY, nullptr, 1.f);
