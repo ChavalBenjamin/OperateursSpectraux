@@ -9,20 +9,26 @@
 //
 // Moteur de courbe partage, reutilise par les 3 modules (Filtre, Delay,
 // Inverse Comp) des "Operateurs Spectraux". Genere une courbe 2D
-// (spectre en X, valeur en Y, -1 a 1) a partir de 5 parametres :
+// (spectre en X, valeur en Y, -1 a 1) a partir de 5 parametres, appliques
+// a une forme de base qui peut etre soit un sinus (mode Type), soit un
+// cycle dessine a la souris (mode Draw) - les 5 parametres agissent de
+// la meme facon dans les deux cas :
 //
-//  - Cycles  : nombre d'oscillations a travers le spectre (jusqu'a 24)
-//  - Q       : 0 = plat, milieu = sinus plein, max = notchs etroits
+//  - Cycles  : nombre de repetitions de la forme a travers le spectre (jusqu'a 24)
+//  - Q       : 0 = plat, milieu = forme pleine, max = notchs etroits
 //  - Ballade : phase (0..1 = un tour complet) - boucle proprement pour un LFO
 //  - Horizon : asymetrie - 0.5 = symetrique, vers 0 = ne garde que les
 //              bosses positives, vers 1 = ne garde que les creux negatifs
-//  - Skew    : redistribution non-lineaire de Y (type gamma) - 1 = neutre,
-//              >1 = ecarte les extremes, <1 = resserre vers les extremes
+//              (avec decalage +1 progressif au-dela de 50%)
+//  - Skew    : redistribue la POSITION des cycles sur l'axe X (pas leur
+//              hauteur) - resserre d'un cote, etire de l'autre
 // ============================================================================
 
 class SpectralCurveEngine
 {
 public:
+  enum class ShapeMode { Type, Draw };
+
   void SetSize(int numPoints)
   {
     numPoints = std::max(2, numPoints);
@@ -39,7 +45,31 @@ public:
     }
   }
 
-  void SetCycles(float cycles) { SetIfChanged(mCycles, std::clamp(cycles, 0.f, 24.f)); }
+  void SetShapeMode(ShapeMode mode)
+  {
+    if (mode != mShapeMode) { mShapeMode = mode; mDirty = true; }
+  }
+
+  // Fournit un cycle dessine a la souris (valeurs -1 a 1, resolution
+  // libre). Recalcule immediatement le raccord de boucle en fonction de
+  // Cycles actuel.
+  void SetDrawnShape(const float* data, int size)
+  {
+    mDrawnShapeRaw.assign(data, data + size);
+    RebuildDrawnShapeForLoop();
+    mDirty = true;
+  }
+
+  void SetCycles(float cycles)
+  {
+    float clamped = std::clamp(cycles, 0.f, 24.f);
+    bool crossedOneThreshold = (clamped > 1.0001f) != (mCycles > 1.0001f);
+    SetIfChanged(mCycles, clamped);
+    // Le raccord de boucle n'a de sens que si la forme se repete
+    // (Cycles > 1) - on ne recalcule que si on vient de franchir ce seuil.
+    if (crossedOneThreshold) RebuildDrawnShapeForLoop();
+  }
+
   void SetQ(float q) { SetIfChanged(mQ, std::clamp(q, 0.f, 1.f)); }
   void SetBallade(float ballade) { SetIfChanged(mBallade, std::clamp(ballade, 0.f, 1.f)); }
   void SetHorizon(float horizon) { SetIfChanged(mHorizon, std::clamp(horizon, 0.f, 1.f)); }
@@ -63,13 +93,16 @@ public:
       // sens opposes. Applique AVANT le calcul de phase, sur x directement.
       float xWarped = std::pow(x, mSkew);
 
-      // 1. Oscillation de base - phase pilotee par Cycles et Ballade,
-      // boucle proprement (Ballade parcourt exactement un tour, 0 a 2*Pi).
-      float phase = 2.f * kPi * mCycles * xWarped + mBallade * 2.f * kPi;
-      float s = std::sin(phase);
+      // 1. Forme de base - "tours" (pas radians) pilotes par Cycles et
+      // Ballade, boucle proprement (Ballade parcourt exactement un tour
+      // complet, 0 a 1). phaseFraction (0..1) se repete a chaque cycle,
+      // que la forme soit un sinus ou un dessin.
+      float rawTurns = mCycles * xWarped + mBallade;
+      float phaseFraction = rawTurns - std::floor(rawTurns); // 0..1
+      float s = GetBaseShape(phaseFraction);
 
-      // 2. Q : deux regimes - 0..milieu monte l'amplitude (plat -> sinus
-      // plein), milieu..max resserre les pics (sinus plein -> notchs).
+      // 2. Q : deux regimes - 0..milieu monte l'amplitude (plat -> forme
+      // pleine), milieu..max resserre les pics (forme pleine -> notchs).
       float y;
       if (mQ <= 0.5f)
       {
@@ -105,14 +138,47 @@ public:
       y *= (y >= 0.f) ? posGain : negGain;
       y += shiftUp;
 
-      // (Skew deplace au debut : redistribue la position X des cycles,
-      // voir plus haut - il n'agit plus sur la hauteur Y ici.)
-
       mCurve[i] = y;
     }
   }
 
 private:
+  // Renvoie la forme de base pour une fraction de cycle (0..1, se repete
+  // a chaque cycle) - soit un sinus (mode Type), soit interpole dans le
+  // cycle dessine a la souris (mode Draw).
+  float GetBaseShape(float phaseFraction) const
+  {
+    if (mShapeMode == ShapeMode::Type || mDrawnShape.empty())
+      return std::sin(2.f * kPi * phaseFraction);
+
+    float pos = phaseFraction * (float)(mDrawnShape.size() - 1);
+    int idx0 = (int)pos;
+    int idx1 = std::min(idx0 + 1, (int)mDrawnShape.size() - 1);
+    float frac = pos - (float)idx0;
+    return mDrawnShape[idx0] * (1.f - frac) + mDrawnShape[idx1] * frac;
+  }
+
+  // Recopie la forme dessinee brute, en lissant le raccord fin->debut
+  // UNIQUEMENT si Cycles > 1 (la forme va etre repetee - sans ca, un saut
+  // audible/visuel apparaitrait a chaque jonction). Si Cycles == 1, la
+  // forme brute est utilisee telle quelle, sans aucune retouche.
+  void RebuildDrawnShapeForLoop()
+  {
+    mDrawnShape = mDrawnShapeRaw;
+    int n = (int)mDrawnShape.size();
+    if (mCycles > 1.0001f && n > 4)
+    {
+      int fadeLen = std::max(2, n / 10);
+      float startVal = mDrawnShape[0];
+      for (int i = 0; i < fadeLen; i++)
+      {
+        float t = (float)i / (float)(fadeLen - 1); // 0..1
+        int idx = n - fadeLen + i;
+        mDrawnShape[idx] = mDrawnShape[idx] * (1.f - t) + startVal * t;
+      }
+    }
+  }
+
   void SetIfChanged(float& member, float value)
   {
     if (value != member) { member = value; mDirty = true; }
@@ -122,10 +188,14 @@ private:
 
   int mNumPoints = 512;
   float mCycles = 1.f;
-  float mQ = 0.5f;       // sinus plein par defaut
+  float mQ = 0.5f;       // forme pleine par defaut
   float mBallade = 0.f;
   float mHorizon = 0.5f; // symetrique par defaut
   float mSkew = 1.f;     // neutre par defaut
+
+  ShapeMode mShapeMode = ShapeMode::Type;
+  std::vector<float> mDrawnShapeRaw;  // telle que dessinee, jamais modifiee
+  std::vector<float> mDrawnShape;     // copie utilisee, avec raccord si besoin
 
   bool mDirty = true;
   std::vector<float> mCurve;
