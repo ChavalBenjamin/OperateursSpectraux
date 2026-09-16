@@ -86,6 +86,7 @@ public:
 
       // 3. Horizon : asymetrie - 0.5 = symetrique (rien ne change).
       float posGain, negGain;
+      float shiftUp = 0.f; // decalage progressif +1 au-dela de 50% (voir plus bas)
       if (mHorizon <= 0.5f)
       {
         posGain = 1.f;
@@ -95,8 +96,14 @@ public:
       {
         negGain = 1.f;
         posGain = (1.f - mHorizon) / 0.5f;
+        // Au-dela de 50%, decale progressivement vers le haut (0 a
+        // horizon=0.5, +1 complet a horizon=1) - a l'extreme, les creux
+        // negatifs (-1 a 0) deviennent des bosses positives (0 a +1),
+        // sans changer leur forme (toujours pilotee par Q).
+        shiftUp = (mHorizon - 0.5f) / 0.5f;
       }
       y *= (y >= 0.f) ? posGain : negGain;
+      y += shiftUp;
 
       // (Skew deplace au debut : redistribue la position X des cycles,
       // voir plus haut - il n'agit plus sur la hauteur Y ici.)
