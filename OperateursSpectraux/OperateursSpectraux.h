@@ -6,10 +6,10 @@
 #include <atomic>
 
 // ============================================================================
-// Etape 1 : moteur de courbe partage seul (Cycles/Q/Ballade/Horizon/Skew),
-// avec apercu visuel - PAS de traitement audio pour l'instant, juste pour
-// valider le comportement mathematique avant de le brancher sur un vrai
-// module (Filtre/Delay/Inverse Comp).
+// Etape 2 : moteur de courbe (Cycles/Q/Ballade/Horizon/Skew) + mode Dessin
+// libre a la souris, une seule fenetre partagee entre dessin et resultat -
+// PAS de traitement audio pour l'instant, juste pour valider le
+// comportement avant de brancher sur un vrai module.
 // ============================================================================
 
 enum EParams
@@ -19,6 +19,7 @@ enum EParams
   kParamBallade,
   kParamHorizon,
   kParamSkew,
+  kParamShapeMode, // 0 = Type (sinus), 1 = Dessin libre
   kNumParams
 };
 
