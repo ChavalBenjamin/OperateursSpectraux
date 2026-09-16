@@ -57,9 +57,15 @@ public:
     {
       float x = (float)i / (float)(mNumPoints - 1); // 0..1
 
+      // 0. Skew : redistribue la POSITION des cycles sur l'axe X (pas leur
+      // hauteur) - resserre les cycles d'un cote du spectre, les etire de
+      // l'autre. Skew=1 = lineaire (neutre), <1 et >1 divergent dans des
+      // sens opposes. Applique AVANT le calcul de phase, sur x directement.
+      float xWarped = std::pow(x, mSkew);
+
       // 1. Oscillation de base - phase pilotee par Cycles et Ballade,
       // boucle proprement (Ballade parcourt exactement un tour, 0 a 2*Pi).
-      float phase = 2.f * kPi * mCycles * x + mBallade * 2.f * kPi;
+      float phase = 2.f * kPi * mCycles * xWarped + mBallade * 2.f * kPi;
       float s = std::sin(phase);
 
       // 2. Q : deux regimes - 0..milieu monte l'amplitude (plat -> sinus
@@ -75,7 +81,7 @@ public:
         float amt = (mQ - 0.5f) / 0.5f;
         float power = 1.f + amt * 11.f; // durete croissante des notchs
         float signS = (s >= 0.f) ? 1.f : -1.f;
-        y = signS * std::pow(std::abs(s), 1.f / power);
+        y = signS * std::pow(std::abs(s), power); // pointe (pas 1/power, qui aplatissait)
       }
 
       // 3. Horizon : asymetrie - 0.5 = symetrique (rien ne change).
@@ -92,9 +98,8 @@ public:
       }
       y *= (y >= 0.f) ? posGain : negGain;
 
-      // 4. Skew : redistribution non-lineaire (type gamma) de la valeur finale.
-      float signY = (y >= 0.f) ? 1.f : -1.f;
-      y = signY * std::pow(std::abs(y), mSkew);
+      // (Skew deplace au debut : redistribue la position X des cycles,
+      // voir plus haut - il n'agit plus sur la hauteur Y ici.)
 
       mCurve[i] = y;
     }
