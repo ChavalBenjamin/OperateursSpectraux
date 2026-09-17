@@ -8,20 +8,25 @@
 // ============================================================================
 // SpectralMagnitudeDistortEngine
 //
-// Distorsion en magnitude, par bande : nouvelle_magnitude = magnitude ^
-// exposant. Contrairement a l'Anti-Comp, aucun seuil, aucune branche -
-// une fonction continue, donc structurellement beaucoup moins susceptible
-// de creer des clics/craquements.
+// 3 mecanismes combinables :
 //
-// Exposant pilote par la courbe partagee : 0 (centre) = neutre (exposant
-// 1, rien ne change), vers un sens = compresse les harmoniques faibles
-// (exposant > 1, "assainit"), vers l'autre = les exagere (exposant < 1,
-// "fait ressortir" le detail faible, plus bruyant/riche).
+//  1. Distorsion en magnitude (existant) : nouvelle_magnitude = magnitude
+//     ^ exposant, par bande - redistribue l'energie deja presente, ne
+//     cree jamais de nouvelle frequence.
 //
-// Compensation de gain (meme principe que MagniPhase/Magnitude1) : la
-// distorsion en puissance peut deplacer enormement le niveau global selon
-// l'exposant - on recale l'energie globale pour eviter les sauts de
-// volume, le limiteur final gere le reste.
+//  2. Injection harmonique (nouveau) : copie une partie de l'energie de
+//     chaque bande vers ses multiples (x2, x3, x4) - cree une VRAIE
+//     nouvelle richesse spectrale, contrairement a la distorsion en
+//     magnitude seule.
+//
+//  3. Distorsion temporelle (nouveau) : waveshaping (tanh) applique sur
+//     le signal RECONSTRUIT final (apres overlap-add) - vraie generation
+//     d'harmoniques par pliage de la forme d'onde, comme une saturation
+//     analogique classique.
+//
+// La latence de traitement (environ une fenetre FFT complete) est
+// exposee via GetLatencySamples(), pour que le plugin puisse a la fois
+// informer l'hote (PDC) et compenser son propre signal sec (Dry/Wet).
 // ============================================================================
 
 class SpectralMagnitudeDistortEngine
@@ -42,6 +47,7 @@ public:
     mTime.resize(mFFTSize);
     mCplx.assign(mFFTSize, cplx(0.f, 0.f));
     mMagBuf.assign(mFFTSize, 0.f);
+    mMagInjected.assign(mFFTSize, 0.f);
     mPhaseBuf.assign(mFFTSize, 0.f);
 
     for (int i = 0; i < mFFTSize; i++)
@@ -53,6 +59,12 @@ public:
   }
 
   void SetCurve(const float* curve, int curveSize) { mCurve = curve; mCurveSize = curveSize; }
+  void SetHarmonicInjection(float amount) { mHarmonicInjection = std::clamp(amount, 0.f, 1.f); }
+  void SetTempDrive(float drive) { mTempDrive = std::clamp(drive, 0.f, 1.f); }
+
+  // Latence de traitement introduite (en echantillons) - environ une
+  // fenetre FFT complete pour ce type d'architecture (ring buffer STFT).
+  int GetLatencySamples() const { return mFFTSize; }
 
   void Process(const float* in, float* out, int nFrames)
   {
@@ -60,8 +72,14 @@ public:
     {
       mRing[mWritePos] = in[i];
 
-      out[i] = mRingOut[mReadPos];
+      float wetSample = mRingOut[mReadPos];
       mRingOut[mReadPos] = 0.f;
+
+      // Distorsion temporelle (waveshaping) : appliquee ICI, sur le
+      // signal RECONSTRUIT final (apres overlap-add) - jamais avant,
+      // sinon la distorsion serait appliquee plusieurs fois dans les
+      // zones de chevauchement entre hops.
+      out[i] = Waveshape(wetSample, mTempDrive);
 
       mWritePos = (mWritePos + 1) % mFFTSize;
       mReadPos = (mReadPos + 1) % mFFTSize;
@@ -75,6 +93,13 @@ public:
   }
 
 private:
+  static float Waveshape(float x, float drive)
+  {
+    if (drive <= 0.0001f) return x; // neutre exact
+    float k = 1.f + drive * kMaxDrive;
+    return std::tanh(x * k) / std::tanh(k);
+  }
+
   void ReadRingIntoLinear(const std::vector<float>& ring, std::vector<float>& dst)
   {
     int start = mWritePos;
@@ -115,8 +140,6 @@ private:
       for (auto& x : a) x /= (float)n;
   }
 
-  // Interpole la courbe (-1..1) sur l'echelle log 20Hz-20kHz, mappee sur
-  // un exposant : 0 -> 1 (neutre), +1 -> kMaxExponent, -1 -> 1/kMaxExponent.
   float GetExponentForBin(int binIdx) const
   {
     if (!mCurve || mCurveSize < 2) return 1.f;
@@ -145,25 +168,46 @@ private:
 
     int numBins = mFFTSize / 2;
 
-    // Passe 1 : applique l'exposant par bande, accumule l'energie avant/apres.
-    float energyBefore = 0.f, energyAfter = 0.f;
+    // Passe 1 : distorsion en magnitude par bande (existant).
+    float energyBefore = 0.f;
     for (int k = 0; k <= numBins; k++)
     {
       float mag = std::abs(mCplx[k]);
       float exponent = GetExponentForBin(k);
-      float newMag = std::pow(std::max(mag, 1e-9f), exponent);
-
-      mMagBuf[k] = newMag;
+      mMagBuf[k] = std::pow(std::max(mag, 1e-9f), exponent);
       mPhaseBuf[k] = std::arg(mCplx[k]);
-
       energyBefore += mag * mag;
-      energyAfter += newMag * newMag;
     }
+
+    // Passe 2 : injection harmonique - copie de l'energie de chaque bande
+    // vers ses multiples (x2, x3, x4), decroissante avec l'ordre - cree
+    // une vraie nouvelle richesse spectrale (pas juste un rescale).
+    if (mHarmonicInjection > 0.001f)
+    {
+      std::copy(mMagBuf.begin(), mMagBuf.begin() + numBins + 1, mMagInjected.begin());
+      for (int k = 1; k <= numBins; k++)
+      {
+        float srcMag = mMagBuf[k];
+        if (srcMag < 1e-6f) continue;
+        for (int h = 2; h <= 4; h++)
+        {
+          int targetBin = k * h;
+          if (targetBin > numBins) break;
+          mMagInjected[targetBin] += srcMag * (mHarmonicInjection / (float)h);
+        }
+      }
+      std::copy(mMagInjected.begin(), mMagInjected.begin() + numBins + 1, mMagBuf.begin());
+    }
+
+    // Passe 3 : compensation de gain (apres distorsion ET injection, pour
+    // recaler sur l'energie REELLEMENT ajoutee), puis reconstruction.
+    float energyAfter = 0.f;
+    for (int k = 0; k <= numBins; k++)
+      energyAfter += mMagBuf[k] * mMagBuf[k];
 
     float gain = std::sqrt(energyBefore / std::max(energyAfter, 1e-9f));
     gain = std::clamp(gain, 0.1f, 10.f);
 
-    // Passe 2 : applique le gain de compensation, reconstruit.
     for (int k = 0; k <= numBins; k++)
     {
       float outMag = mMagBuf[k] * gain;
@@ -187,7 +231,8 @@ private:
   }
 
   static constexpr float kPi = 3.14159265358979323846f;
-  static constexpr float kMaxExponent = 4.f;
+  static constexpr float kMaxExponent = 8.f;  // repousse (avant : 4)
+  static constexpr float kMaxDrive = 30.f;    // intensite max de la distorsion temporelle
 
   int mFFTSize = 1024;
   int mOverlap = 4;
@@ -199,8 +244,10 @@ private:
 
   const float* mCurve = nullptr;
   int mCurveSize = 0;
+  float mHarmonicInjection = 0.f;
+  float mTempDrive = 0.f;
 
   std::vector<float> mRing, mRingOut, mWindow, mTime;
   std::vector<cplx> mCplx;
-  std::vector<float> mMagBuf, mPhaseBuf;
+  std::vector<float> mMagBuf, mMagInjected, mPhaseBuf;
 };

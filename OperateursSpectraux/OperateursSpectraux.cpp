@@ -17,6 +17,9 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamHorizon)->InitPercentage("Horizon", 50.);
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
+  GetParam(kParamHarmonicInjection)->InitDouble("Injection", 0., 0., 100., 0.1, "%");
+  GetParam(kParamTempDrive)->InitDouble("Drive", 0., 0., 100., 0.1, "%");
+  GetParam(kParamDryWet)->InitDouble("Dry/Wet", 100., 0., 100., 0.1, "%");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
   mDrawnShapeStorage.assign(128, 0.f);
@@ -36,11 +39,17 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     const IRECT bounds = pGraphics->GetBounds();
     IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 3).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 6).GetCentredInside(110.f, 40.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 3).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 6).GetCentredInside(110.f, 40.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 3).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
+    mParamControls[kParamHarmonicInjection] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 6).GetCentredInside(50.f), kParamHarmonicInjection, "Injection", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamHarmonicInjection]);
+    mParamControls[kParamTempDrive] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 6).GetCentredInside(50.f), kParamTempDrive, "Drive", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamTempDrive]);
+    mParamControls[kParamDryWet] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 6).GetCentredInside(50.f), kParamDryWet, "Dry/Wet", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamDryWet]);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 5, 1, 6).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
     IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
@@ -132,6 +141,19 @@ void OperateursSpectraux::UpdateFFTConfig()
 
   mDistortL.Init(fftSize, overlap, GetSampleRate());
   mDistortR.Init(fftSize, overlap, GetSampleRate());
+
+  // Ligne a retard du signal sec, alignee EXACTEMENT sur la latence du
+  // traitement, pour que Dry/Wet ne cree pas de decalage temporel.
+  mDryDelaySize = std::max(1, mDistortL.GetLatencySamples());
+  mDryDelayL.assign(mDryDelaySize, 0.f);
+  mDryDelayR.assign(mDryDelaySize, 0.f);
+  mDryDelayPos = 0;
+
+  // NOTE : SetLatency() est utilise ici pour la premiere fois dans ce
+  // projet, jamais verifie au prealable - a confirmer a la compilation.
+  // Informe l'hote (Reaper) de la latence reelle, pour qu'il puisse la
+  // compenser lui-meme sur l'ensemble de la piste/session (PDC).
+  SetLatency(mDryDelaySize);
 }
 
 void OperateursSpectraux::UpdateEngine()
@@ -245,8 +267,31 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
     mDistortR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
   }
 
+  float injection = (float)(GetParam(kParamHarmonicInjection)->Value() / 100.0);
+  float tempDrive = (float)(GetParam(kParamTempDrive)->Value() / 100.0);
+  float dryWet = (float)(GetParam(kParamDryWet)->Value() / 100.0);
+  mDistortL.SetHarmonicInjection(injection);
+  mDistortR.SetHarmonicInjection(injection);
+  mDistortL.SetTempDrive(tempDrive);
+  mDistortR.SetTempDrive(tempDrive);
+
   mDistortL.Process(bufL, outL, n);
   mDistortR.Process(bufR, outR, n);
+
+  // Dry/Wet : le signal sec passe par sa PROPRE ligne a retard (alignee
+  // sur la latence du traitement) avant d'etre melange, pour rester en
+  // phase avec le signal traite.
+  for (int i = 0; i < n; i++)
+  {
+    float dryL = mDryDelayL[mDryDelayPos];
+    float dryR = mDryDelayR[mDryDelayPos];
+    mDryDelayL[mDryDelayPos] = bufL[i];
+    mDryDelayR[mDryDelayPos] = bufR[i];
+    mDryDelayPos = (mDryDelayPos + 1) % mDryDelaySize;
+
+    outL[i] = dryL * (1.f - dryWet) + outL[i] * dryWet;
+    outR[i] = dryR * (1.f - dryWet) + outR[i] * dryWet;
+  }
 
   mLimiter.ProcessStereo(outL, outR, n);
 

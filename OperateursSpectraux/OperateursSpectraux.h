@@ -25,6 +25,9 @@ enum EParams
   kParamHorizon,
   kParamSkew,
   kParamShapeMode,        // 0 = Type (sinus), 1 = Dessin libre
+  kParamHarmonicInjection, // 0-100% : injection harmonique (x2/x3/x4)
+  kParamTempDrive,        // 0-100% : distorsion temporelle (waveshaping)
+  kParamDryWet,           // 0-100% : melange signal sec (retarde) / traite
   kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
   kNumParams
 };
@@ -70,6 +73,13 @@ private:
   SpectralMagnitudeDistortEngine mDistortL, mDistortR;
   BrickwallLimiter mLimiter;
   SpectrumAnalyzer mAnalyzer;
+
+  // Ligne a retard pour le signal SEC, alignee sur la latence du
+  // traitement (environ une fenetre FFT) - sans ca, melanger sec (instantane)
+  // et traite (retarde) creerait un decalage temporel audible.
+  std::vector<float> mDryDelayL, mDryDelayR;
+  int mDryDelayPos = 0;
+  int mDryDelaySize = 1;
 
   std::mutex mCurveMutex;
   std::vector<float> mSharedCurve;
