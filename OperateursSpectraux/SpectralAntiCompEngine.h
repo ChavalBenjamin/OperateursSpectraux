@@ -171,12 +171,18 @@ private:
 
       float thresholdDb = GetThresholdDbForBin(k);
 
-      // Meme formule qu'un compresseur classique, mais ratio < 1 -> ecarte
-      // la dynamique au lieu de la resserrer (applique uniformement,
-      // au-dessus ET en dessous du seuil - pas de branche if/else,
-      // "l'explosion des dynamiques" vient naturellement des deux cotes).
-      float outputLevelDb = thresholdDb + (mEnvelopeDb[k] - thresholdDb) / mRatio;
-      float gainDb = outputLevelDb - mEnvelopeDb[k];
+      // Un seul cote : seul ce qui DEPASSE le seuil est ecarte (expanse) -
+      // en dessous du seuil, le signal reste intact, inchange.
+      float gainDb;
+      if (mEnvelopeDb[k] > thresholdDb)
+      {
+        float outputLevelDb = thresholdDb + (mEnvelopeDb[k] - thresholdDb) / mRatio;
+        gainDb = outputLevelDb - mEnvelopeDb[k];
+      }
+      else
+      {
+        gainDb = 0.f;
+      }
       gainDb = std::clamp(gainDb, -60.f, 24.f); // securite locale, en plus du limiteur final
 
       // Lissage SEPARE, applique au GAIN lui-meme (pas juste au niveau
