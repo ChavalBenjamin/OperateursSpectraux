@@ -17,8 +17,6 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamHorizon)->InitPercentage("Horizon", 50.);
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
-  GetParam(kParamRatio)->InitDouble("Ratio", 0.5, 0.02, 1., 0.01);
-  GetParam(kParamRelease)->InitDouble("Release", 80., 5., 2000., 1., "ms");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
   mDrawnShapeStorage.assign(128, 0.f);
@@ -38,15 +36,11 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     const IRECT bounds = pGraphics->GetBounds();
     IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 5).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 3).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 5).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 3).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamRatio] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 5).GetCentredInside(50.f), kParamRatio, "Ratio", knobStyle);
-    pGraphics->AttachControl(mParamControls[kParamRatio]);
-    mParamControls[kParamRelease] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 5).GetCentredInside(50.f), kParamRelease, "Release", knobStyle);
-    pGraphics->AttachControl(mParamControls[kParamRelease]);
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 5).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 3).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
     IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
@@ -136,8 +130,8 @@ void OperateursSpectraux::UpdateFFTConfig()
   int overlapIdx = (int)GetParam(kParamOverlap)->Value();
   int overlap = (overlapIdx == 0) ? 2 : 4;
 
-  mCompL.Init(fftSize, overlap, GetSampleRate());
-  mCompR.Init(fftSize, overlap, GetSampleRate());
+  mDistortL.Init(fftSize, overlap, GetSampleRate());
+  mDistortR.Init(fftSize, overlap, GetSampleRate());
 }
 
 void OperateursSpectraux::UpdateEngine()
@@ -172,16 +166,14 @@ void OperateursSpectraux::UpdateYAxisMarks()
 {
   if (!mCurveView) return;
 
+  // Repere l'exposant : -1 -> x0.25, 0 -> x1 (neutre), +1 -> x4 (memes
+  // valeurs que kMaxExponent dans le moteur).
   std::vector<SpectralCurvePreviewControl::AxisMark> marks;
-  // Seuil (-60dB..0dB, mappe lineairement sur -1..1 - meme formule que le moteur).
-  const float dbMarks[] = { -60.f, -45.f, -30.f, -15.f, 0.f };
-  for (int i = 0; i < 5; i++)
-  {
-    float value = (dbMarks[i] + 30.f) / 30.f; // inverse de curveVal*30-30
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.0fdB", dbMarks[i]);
-    marks.push_back({ value, buf, i == 2 });
-  }
+  marks.push_back({ -1.f, "Exp 0.25", false });
+  marks.push_back({ -0.5f, "Exp 0.5", false });
+  marks.push_back({ 0.f, "Exp 1 (neutre)", true });
+  marks.push_back({ 0.5f, "Exp 2", false });
+  marks.push_back({ 1.f, "Exp 4", false });
 
   mCurveView->SetYAxisMarks(marks);
 }
@@ -249,22 +241,13 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
 
   {
     std::lock_guard<std::mutex> lock(mCurveMutex);
-    mCompL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
-    mCompR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mDistortL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mDistortR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
   }
 
-  float ratio = (float)GetParam(kParamRatio)->Value();
-  float releaseMs = (float)GetParam(kParamRelease)->Value();
-  mCompL.SetRatio(ratio);
-  mCompR.SetRatio(ratio);
-  mCompL.SetReleaseMs(releaseMs);
-  mCompR.SetReleaseMs(releaseMs);
+  mDistortL.Process(bufL, outL, n);
+  mDistortR.Process(bufR, outR, n);
 
-  mCompL.Process(bufL, outL, n);
-  mCompR.Process(bufR, outR, n);
-
-  // Limiteur Brickwall - indispensable ici, l'Anti-Comp peut ecarter la
-  // dynamique de facon tres agressive.
   mLimiter.ProcessStereo(outL, outR, n);
 
   for (int i = 0; i < n; i++)

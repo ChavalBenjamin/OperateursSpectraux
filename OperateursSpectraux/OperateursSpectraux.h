@@ -3,16 +3,16 @@
 #include "IPlug_include_in_plug_hdr.h"
 #include "SpectralCurveEngine.h"
 #include "SpectralCurvePreviewControl.h"
-#include "SpectralAntiCompEngine.h"
+#include "SpectralMagnitudeDistortEngine.h"
 #include "BrickwallLimiter.h"
 #include "SpectrumAnalyzer.h"
 #include <atomic>
 #include <mutex>
 
 // ============================================================================
-// Etape 5 : Anti-Comp (compresseur inverse, ratio < 1) - chaque bande FFT a
-// son propre seuil (-60dB a 0dB), pilote par la courbe partagee. Ratio
-// global. Stereo (2 instances, une par canal).
+// Etape 5bis : Distorsion en magnitude - nouvelle_magnitude = magnitude ^
+// exposant, par bande, exposant pilote par la courbe partagee. Continu (pas
+// de seuil), compensation de gain. Stereo.
 // ============================================================================
 
 enum EParams
@@ -25,8 +25,6 @@ enum EParams
   kParamHorizon,
   kParamSkew,
   kParamShapeMode,        // 0 = Type (sinus), 1 = Dessin libre
-  kParamRatio,            // 0.02-1.0 : ratio du compresseur inverse (plus bas = plus extreme)
-  kParamRelease,          // 5-2000ms : relachement de l'enveloppe et du lissage de gain
   kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
   kNumParams
 };
@@ -69,7 +67,7 @@ private:
   void UpdateYAxisMarks();
 
   SpectralCurveEngine mEngine;
-  SpectralAntiCompEngine mCompL, mCompR;
+  SpectralMagnitudeDistortEngine mDistortL, mDistortR;
   BrickwallLimiter mLimiter;
   SpectrumAnalyzer mAnalyzer;
 
