@@ -10,19 +10,18 @@
 //
 // 3 mecanismes combinables :
 //
-//  1. Distorsion en magnitude (existant) : nouvelle_magnitude = magnitude
-//     ^ exposant, par bande - redistribue l'energie deja presente, ne
-//     cree jamais de nouvelle frequence.
+//  1. Distorsion en magnitude : nouvelle_magnitude = magnitude ^ exposant,
+//     par bande - redistribue l'energie deja presente.
+//  2. Injection harmonique : copie une partie de l'energie de chaque
+//     bande vers ses multiples (x2, x3, x4) - vraie nouvelle richesse
+//     spectrale.
+//  3. Distorsion temporelle : waveshaping (tanh) sur le signal
+//     RECONSTRUIT final (apres overlap-add).
 //
-//  2. Injection harmonique (nouveau) : copie une partie de l'energie de
-//     chaque bande vers ses multiples (x2, x3, x4) - cree une VRAIE
-//     nouvelle richesse spectrale, contrairement a la distorsion en
-//     magnitude seule.
-//
-//  3. Distorsion temporelle (nouveau) : waveshaping (tanh) applique sur
-//     le signal RECONSTRUIT final (apres overlap-add) - vraie generation
-//     d'harmoniques par pliage de la forme d'onde, comme une saturation
-//     analogique classique.
+// Lissage par bande (attaque/relachement) applique au GAIN EFFECTIF de
+// chaque bande (rapport magnitude finale / magnitude d'origine) - sans
+// ca, chaque hop recalcule tout independamment, creant des discontinuites
+// audibles (clics) a chaque saut de bloc.
 //
 // La latence de traitement (environ une fenetre FFT complete) est
 // exposee via GetLatencySamples(), pour que le plugin puisse a la fois
@@ -49,9 +48,18 @@ public:
     mMagBuf.assign(mFFTSize, 0.f);
     mMagInjected.assign(mFFTSize, 0.f);
     mPhaseBuf.assign(mFFTSize, 0.f);
+    mOrigMagBuf.assign(mFFTSize, 0.f);
+
+    int numBins = mFFTSize / 2 + 1;
+    mGainSmoothDb.assign(numBins, 0.f);
 
     for (int i = 0; i < mFFTSize; i++)
       mWindow[i] = 0.5f - 0.5f * std::cos(2.f * kPi * i / (mFFTSize - 1));
+
+    // Coefficients d'attaque/relachement du lissage de gain par bande.
+    float hopMs = (float)mHopSize / (float)mSampleRate * 1000.f;
+    mAttackCoeff = 1.f - std::exp(-hopMs / kSmoothAttackMs);
+    mReleaseCoeff = 1.f - std::exp(-hopMs / kSmoothReleaseMs);
 
     mWritePos = 0;
     mReadPos = 0;
@@ -60,7 +68,25 @@ public:
 
   void SetCurve(const float* curve, int curveSize) { mCurve = curve; mCurveSize = curveSize; }
   void SetHarmonicInjection(float amount) { mHarmonicInjection = std::clamp(amount, 0.f, 1.f); }
-  void SetTempDrive(float drive) { mTempDrive = std::clamp(drive, 0.f, 1.f); }
+
+  // Courbe non-lineaire : 75% du parcours du bouton couvre les 15%
+  // premiers de Drive (la zone la plus interessante, dilatee pour plus
+  // de precision), le reste suit une courbe exponentielle.
+  void SetTempDrive(float rawT)
+  {
+    rawT = std::clamp(rawT, 0.f, 1.f);
+    constexpr float kSplitKnob = 0.75f;
+    constexpr float kSplitValue = 0.15f;
+    constexpr float kExpPower = 2.5f;
+
+    if (rawT <= kSplitKnob)
+      mTempDrive = (rawT / kSplitKnob) * kSplitValue;
+    else
+    {
+      float s = (rawT - kSplitKnob) / (1.f - kSplitKnob);
+      mTempDrive = kSplitValue + (1.f - kSplitValue) * std::pow(s, kExpPower);
+    }
+  }
 
   // Latence de traitement introduite (en echantillons) - environ une
   // fenetre FFT complete pour ce type d'architecture (ring buffer STFT).
@@ -168,20 +194,20 @@ private:
 
     int numBins = mFFTSize / 2;
 
-    // Passe 1 : distorsion en magnitude par bande (existant).
+    // Passe 1 : distorsion en magnitude par bande. Garde la magnitude
+    // D'ORIGINE (avant tout traitement) pour le lissage de gain plus bas.
     float energyBefore = 0.f;
     for (int k = 0; k <= numBins; k++)
     {
       float mag = std::abs(mCplx[k]);
+      mOrigMagBuf[k] = mag;
       float exponent = GetExponentForBin(k);
       mMagBuf[k] = std::pow(std::max(mag, 1e-9f), exponent);
       mPhaseBuf[k] = std::arg(mCplx[k]);
       energyBefore += mag * mag;
     }
 
-    // Passe 2 : injection harmonique - copie de l'energie de chaque bande
-    // vers ses multiples (x2, x3, x4), decroissante avec l'ordre - cree
-    // une vraie nouvelle richesse spectrale (pas juste un rescale).
+    // Passe 2 : injection harmonique.
     if (mHarmonicInjection > 0.001f)
     {
       std::copy(mMagBuf.begin(), mMagBuf.begin() + numBins + 1, mMagInjected.begin());
@@ -199,18 +225,34 @@ private:
       std::copy(mMagInjected.begin(), mMagInjected.begin() + numBins + 1, mMagBuf.begin());
     }
 
-    // Passe 3 : compensation de gain (apres distorsion ET injection, pour
-    // recaler sur l'energie REELLEMENT ajoutee), puis reconstruction.
+    // Passe 3 : compensation de gain GLOBALE (apres distorsion ET
+    // injection). Plancher abaisse a 0.01 (au lieu de 0.1) : l'injection
+    // peut ajouter beaucoup d'energie, l'ancien plancher ne suffisait
+    // plus a compenser dans les cas extremes.
     float energyAfter = 0.f;
     for (int k = 0; k <= numBins; k++)
       energyAfter += mMagBuf[k] * mMagBuf[k];
 
-    float gain = std::sqrt(energyBefore / std::max(energyAfter, 1e-9f));
-    gain = std::clamp(gain, 0.1f, 10.f);
+    float globalGain = std::sqrt(energyBefore / std::max(energyAfter, 1e-9f));
+    globalGain = std::clamp(globalGain, 0.01f, 10.f);
 
+    // Passe 4 : lissage PAR BANDE du gain effectif (magnitude finale /
+    // magnitude d'origine), en dB, avec attaque/relachement - sans ca,
+    // chaque hop recalcule tout independamment => discontinuites/clics
+    // a chaque saut de bloc.
     for (int k = 0; k <= numBins; k++)
     {
-      float outMag = mMagBuf[k] * gain;
+      float finalMag = mMagBuf[k] * globalGain;
+      float origMag = std::max(mOrigMagBuf[k], 1e-9f);
+      float targetGainDb = 20.f * std::log10(std::max(finalMag, 1e-9f) / origMag);
+
+      if (targetGainDb > mGainSmoothDb[k])
+        mGainSmoothDb[k] += (targetGainDb - mGainSmoothDb[k]) * mAttackCoeff;
+      else
+        mGainSmoothDb[k] += (targetGainDb - mGainSmoothDb[k]) * mReleaseCoeff;
+
+      float smoothedGain = std::pow(10.f, mGainSmoothDb[k] / 20.f);
+      float outMag = origMag * smoothedGain;
       float outPhase = mPhaseBuf[k];
 
       cplx val(outMag * std::cos(outPhase), outMag * std::sin(outPhase));
@@ -231,8 +273,10 @@ private:
   }
 
   static constexpr float kPi = 3.14159265358979323846f;
-  static constexpr float kMaxExponent = 8.f;  // repousse (avant : 4)
-  static constexpr float kMaxDrive = 30.f;    // intensite max de la distorsion temporelle
+  static constexpr float kMaxExponent = 8.f;
+  static constexpr float kMaxDrive = 30.f;
+  static constexpr float kSmoothAttackMs = 5.f;
+  static constexpr float kSmoothReleaseMs = 15.f;
 
   int mFFTSize = 1024;
   int mOverlap = 4;
@@ -247,7 +291,11 @@ private:
   float mHarmonicInjection = 0.f;
   float mTempDrive = 0.f;
 
+  float mAttackCoeff = 0.5f;
+  float mReleaseCoeff = 0.2f;
+  std::vector<float> mGainSmoothDb;
+
   std::vector<float> mRing, mRingOut, mWindow, mTime;
   std::vector<cplx> mCplx;
-  std::vector<float> mMagBuf, mMagInjected, mPhaseBuf;
+  std::vector<float> mMagBuf, mMagInjected, mPhaseBuf, mOrigMagBuf;
 };
