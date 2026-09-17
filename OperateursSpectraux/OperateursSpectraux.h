@@ -26,6 +26,7 @@ enum EParams
   kParamSkew,
   kParamShapeMode,        // 0 = Type (sinus), 1 = Dessin libre
   kParamHarmonicInjection, // 0-100% : injection harmonique (x2/x3/x4)
+  kParamDecayExponent,    // 0.2-1.0 : decroissance de l'injection (1 = actuel, 0.2 = presque plat)
   kParamTempDrive,        // 0-100% : distorsion temporelle (waveshaping)
   kParamDryWet,           // 0-100% : melange signal sec (retarde) / traite
   kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
