@@ -17,8 +17,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamHorizon)->InitPercentage("Horizon", 50.);
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
-  GetParam(kParamFeedback)->InitDouble("Feedback", 0., 0., 150., 0.1, "%");
-  GetParam(kParamSyncMode)->InitEnum("Sync", 0, 2, "", IParam::kFlagsNone, "", "Off", "On");
+  GetParam(kParamRatio)->InitDouble("Ratio", 0.5, 0.02, 1., 0.01);
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
   mDrawnShapeStorage.assign(128, 0.f);
@@ -38,15 +37,13 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     const IRECT bounds = pGraphics->GetBounds();
     IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 5).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 4).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 5).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 4).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamFeedback] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 5).GetCentredInside(50.f), kParamFeedback, "Feedback", knobStyle);
-    pGraphics->AttachControl(mParamControls[kParamFeedback]);
-    mParamControls[kParamSyncMode] = new IVMenuButtonControl(topRow.GetGridCell(0, 3, 1, 5).GetCentredInside(100.f, 40.f), kParamSyncMode, "Sync");
-    pGraphics->AttachControl(mParamControls[kParamSyncMode]);
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 5).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
+    mParamControls[kParamRatio] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 4).GetCentredInside(50.f), kParamRatio, "Ratio", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamRatio]);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 4).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
     IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
@@ -93,15 +90,8 @@ void OperateursSpectraux::OnIdle()
 #endif
 }
 
-// A chaque (re)ouverture de la fenetre : les CONTROLES sont neufs (recrees
-// par mLayoutFunc), meme si le moteur/parametres eux ont deja leur bon
-// etat - il faut donc explicitement repousser mode dessin + courbe
-// dessinee + grille Y vers cette nouvelle fenetre.
 void OperateursSpectraux::SyncUIToState()
 {
-  // Force chaque potard/bouton a se resynchroniser visuellement depuis sa
-  // vraie valeur - sans ca, apres restauration d'un projet, le son et le
-  // texte affiche sont corrects mais la ROTATION visuelle reste a zero.
   for (int i = 0; i < kNumParams; i++)
   {
     if (mParamControls[i])
@@ -147,10 +137,6 @@ int OperateursSpectraux::UnserializeState(const IByteChunk& chunk, int startPos)
   if (!mDrawnShapeStorage.empty())
     mEngine.SetDrawnShape(mDrawnShapeStorage.data(), (int)mDrawnShapeStorage.size());
 
-  // Les parametres restaures ne redeclenchent pas OnParamChange -
-  // reconfigure donc TOUT explicitement (FFT/Overlap compris), sinon le
-  // moteur reste sur son ancien etat par defaut malgre les boutons
-  // affichant les bonnes valeurs.
   ApplyAllState();
 #endif
 
@@ -181,8 +167,8 @@ void OperateursSpectraux::UpdateFFTConfig()
   int overlapIdx = (int)GetParam(kParamOverlap)->Value();
   int overlap = (overlapIdx == 0) ? 2 : 4;
 
-  mDelayL.Init(fftSize, overlap, GetSampleRate());
-  mDelayR.Init(fftSize, overlap, GetSampleRate());
+  mCompL.Init(fftSize, overlap, GetSampleRate());
+  mCompR.Init(fftSize, overlap, GetSampleRate());
 }
 
 void OperateursSpectraux::UpdateEngine()
@@ -217,42 +203,15 @@ void OperateursSpectraux::UpdateYAxisMarks()
 {
   if (!mCurveView) return;
 
-  auto msToValue = [](float ms) {
-    float t = std::pow(std::max(0.f, ms) / 2500.f, 1.f / 3.f);
-    return 2.f * t - 1.f;
-  };
-
   std::vector<SpectralCurvePreviewControl::AxisMark> marks;
-  bool sync = (int)GetParam(kParamSyncMode)->Value() != 0;
-
-  if (!sync)
+  // Seuil (-60dB..0dB, mappe lineairement sur -1..1 - meme formule que le moteur).
+  const float dbMarks[] = { -60.f, -45.f, -30.f, -15.f, 0.f };
+  for (int i = 0; i < 5; i++)
   {
-    const float msMarks[] = { 0.f, 20.f, 100.f, 500.f, 2500.f };
-    const char* labels[] = { "0ms", "20ms", "100ms", "500ms", "2.5s" };
-    for (int i = 0; i < 5; i++)
-      marks.push_back({ msToValue(msMarks[i]), labels[i], i == 2 });
-  }
-  else
-  {
-    double bpm = GetTempo();
-    if (bpm <= 0.0) bpm = 120.0;
-    double quarterMs = 60000.0 / bpm;
-    double wholeMs = quarterMs * 4.0;
-    static const float divisors[] = { 1.f, 2.f, 4.f, 8.f, 16.f, 32.f, 64.f };
-    static const char* names[] = { "1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64" };
-    for (int i = 0; i < 7; i++)
-    {
-      float straightMs = (float)(wholeMs / divisors[i]);
-      if (straightMs >= 0.f && straightMs <= 2500.f)
-        marks.push_back({ msToValue(straightMs), names[i], i == 2 });
-
-      float tripletMs = straightMs * (2.f / 3.f);
-      if (tripletMs >= 0.f && tripletMs <= 2500.f)
-      {
-        std::string tName = std::string(names[i]) + "T";
-        marks.push_back({ msToValue(tripletMs), tName, false });
-      }
-    }
+    float value = (dbMarks[i] + 30.f) / 30.f; // inverse de curveVal*30-30
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.0fdB", dbMarks[i]);
+    marks.push_back({ value, buf, i == 2 });
   }
 
   mCurveView->SetYAxisMarks(marks);
@@ -286,10 +245,6 @@ void OperateursSpectraux::OnParamChange(int paramIdx)
       UpdateEngine();
       break;
 
-    case kParamSyncMode:
-      UpdateYAxisMarks();
-      break;
-
     case kParamLimiterThreshold:
       mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
       break;
@@ -310,9 +265,6 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
     bufR[i] = (float)inputs[1][i];
   }
 
-  // Analyseur de spectre (purement visuel) - alimente avec le signal
-  // ENTRANT (avant traitement), mixe L+R, pour servir de reference pendant
-  // qu'on sculpte la courbe.
   static float bufMix[8192];
   for (int i = 0; i < n; i++)
     bufMix[i] = (bufL[i] + bufR[i]) * 0.5f;
@@ -328,25 +280,19 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
 
   {
     std::lock_guard<std::mutex> lock(mCurveMutex);
-    mDelayL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
-    mDelayR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mCompL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mCompR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
   }
 
-  float feedback = (float)(GetParam(kParamFeedback)->Value() / 100.0);
-  bool sync = (int)GetParam(kParamSyncMode)->Value() != 0;
-  double bpm = GetTempo();
-  if (bpm <= 0.0) bpm = 120.0;
+  float ratio = (float)GetParam(kParamRatio)->Value();
+  mCompL.SetRatio(ratio);
+  mCompR.SetRatio(ratio);
 
-  mDelayL.SetFeedback(feedback);
-  mDelayR.SetFeedback(feedback);
-  mDelayL.SetSyncMode(sync);
-  mDelayR.SetSyncMode(sync);
-  mDelayL.SetBPM(bpm);
-  mDelayR.SetBPM(bpm);
+  mCompL.Process(bufL, outL, n);
+  mCompR.Process(bufR, outR, n);
 
-  mDelayL.Process(bufL, outL, n);
-  mDelayR.Process(bufR, outR, n);
-
+  // Limiteur Brickwall - indispensable ici, l'Anti-Comp peut ecarter la
+  // dynamique de facon tres agressive.
   mLimiter.ProcessStereo(outL, outR, n);
 
   for (int i = 0; i < n; i++)

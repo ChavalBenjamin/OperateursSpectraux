@@ -3,16 +3,16 @@
 #include "IPlug_include_in_plug_hdr.h"
 #include "SpectralCurveEngine.h"
 #include "SpectralCurvePreviewControl.h"
-#include "SpectralDelayEngine.h"
+#include "SpectralAntiCompEngine.h"
 #include "BrickwallLimiter.h"
 #include "SpectrumAnalyzer.h"
 #include <atomic>
 #include <mutex>
 
 // ============================================================================
-// Etape 4 : Delay spectral - chaque bande FFT a son propre temps de retard
-// (0ms a 2.5s), pilote par la courbe partagee, avec feedback et sync BPM.
-// Stereo (2 instances de SpectralDelayEngine, une par canal).
+// Etape 5 : Anti-Comp (compresseur inverse, ratio < 1) - chaque bande FFT a
+// son propre seuil (-60dB a 0dB), pilote par la courbe partagee. Ratio
+// global. Stereo (2 instances, une par canal).
 // ============================================================================
 
 enum EParams
@@ -25,8 +25,7 @@ enum EParams
   kParamHorizon,
   kParamSkew,
   kParamShapeMode,        // 0 = Type (sinus), 1 = Dessin libre
-  kParamFeedback,         // 0-150% (peut depasser 100%, le limiteur protege)
-  kParamSyncMode,         // Off/On : la grille bascule ms <-> divisions rythmiques
+  kParamRatio,            // 0.02-1.0 : ratio du compresseur inverse (plus bas = plus extreme)
   kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
   kNumParams
 };
@@ -43,11 +42,6 @@ public:
   void OnUIOpen() override { SyncUIToState(); }
   void OnUIClose() override { mCurveView = nullptr; for (auto& c : mParamControls) c = nullptr; }
 
-  // Sauvegarde/relecture personnalisee : les boutons (parametres) sont
-  // deja geres automatiquement par iPlug2, mais le dessin libre (juste un
-  // tableau de nombres cote plugin) doit etre explicitement ajoute a
-  // l'etat sauvegarde - premiere utilisation de ce mecanisme dans ce
-  // projet, a verifier a la compilation.
   bool SerializeState(IByteChunk& chunk) const override;
   int UnserializeState(const IByteChunk& chunk, int startPos) override;
 
@@ -59,19 +53,12 @@ public:
 
 private:
   SpectralCurvePreviewControl* mCurveView = nullptr;
-
-  // Un pointeur par parametre lie a un controle visuel (potard/bouton) -
-  // permet de forcer leur resynchronisation visuelle apres restauration
-  // d'un projet, meme quand la vraie valeur (et le son) sont deja corrects.
   IControl* mParamControls[kNumParams] = { nullptr };
 
-  // Copie persistante du dessin, cote plugin (independante des
-  // parametres) - c'est elle qu'on sauvegarde/relit, et qu'on repousse
-  // vers la fenetre a chaque ouverture.
   std::vector<float> mDrawnShapeStorage;
 
-  void ApplyAllState();  // (re)configure completement le moteur - a l'ouverture ET apres restauration d'un projet
-  void SyncUIToState();  // repousse mode dessin + courbe dessinee + grille Y vers la fenetre fraichement (re)creee
+  void ApplyAllState();
+  void SyncUIToState();
 
 #if IPLUG_DSP
   void UpdateFFTConfig();
@@ -79,21 +66,17 @@ private:
   void UpdateYAxisMarks();
 
   SpectralCurveEngine mEngine;
-  SpectralDelayEngine mDelayL, mDelayR;
+  SpectralAntiCompEngine mCompL, mCompR;
   BrickwallLimiter mLimiter;
   SpectrumAnalyzer mAnalyzer;
 
-  // Meme principe que la courbe : calcule sur l'audio, copie sous mutex,
-  // lu par le thread interface.
+  std::mutex mCurveMutex;
+  std::vector<float> mSharedCurve;
+
   std::mutex mSpectrumMutex;
   std::atomic<bool> mSpectrumUIUpdated { false };
   float mSpectrumUIBuf[1100] = { -80.f };
   int mSpectrumUISize = 0;
-
-  // La courbe (calculee sur le thread interface/parametres) est copiee ici
-  // sous mutex, puis lue par le thread audio a chaque bloc.
-  std::mutex mCurveMutex;
-  std::vector<float> mSharedCurve;
 
   std::atomic<bool> mCurveUIUpdated { false };
   float mCurveUIBuf[512] = { 0.f };
