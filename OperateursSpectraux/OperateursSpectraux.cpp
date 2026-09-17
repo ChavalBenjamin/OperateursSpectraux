@@ -18,6 +18,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
   GetParam(kParamRatio)->InitDouble("Ratio", 0.5, 0.02, 1., 0.01);
+  GetParam(kParamRelease)->InitDouble("Release", 80., 5., 2000., 1., "ms");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
   mDrawnShapeStorage.assign(128, 0.f);
@@ -37,13 +38,15 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
 
     const IRECT bounds = pGraphics->GetBounds();
     IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 4).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 5).GetCentredInside(130.f, 40.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 4).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 5).GetCentredInside(130.f, 40.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamRatio] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 4).GetCentredInside(50.f), kParamRatio, "Ratio", knobStyle);
+    mParamControls[kParamRatio] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 5).GetCentredInside(50.f), kParamRatio, "Ratio", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamRatio]);
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 4).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
+    mParamControls[kParamRelease] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 5).GetCentredInside(50.f), kParamRelease, "Release", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamRelease]);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 5).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
     IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
@@ -251,8 +254,11 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
   }
 
   float ratio = (float)GetParam(kParamRatio)->Value();
+  float releaseMs = (float)GetParam(kParamRelease)->Value();
   mCompL.SetRatio(ratio);
   mCompR.SetRatio(ratio);
+  mCompL.SetReleaseMs(releaseMs);
+  mCompR.SetReleaseMs(releaseMs);
 
   mCompL.Process(bufL, outL, n);
   mCompR.Process(bufR, outR, n);

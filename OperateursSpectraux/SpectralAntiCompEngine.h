@@ -44,12 +44,13 @@ public:
 
     int numBins = mFFTSize / 2 + 1;
     mEnvelopeDb.assign(numBins, kFloorDb);
+    mGainSmoothDb.assign(numBins, 0.f);
 
     // Coefficients d'attaque/relachement de l'enveloppe par bande,
     // recalcules ici puisqu'ils dependent de la duree d'un hop.
-    float hopMs = (float)mHopSize / (float)mSampleRate * 1000.f;
-    mAttackCoeff = 1.f - std::exp(-hopMs / kAttackMs);
-    mReleaseCoeff = 1.f - std::exp(-hopMs / kReleaseMs);
+    mHopDurationMs = (float)mHopSize / (float)mSampleRate * 1000.f;
+    mAttackCoeff = 1.f - std::exp(-mHopDurationMs / kAttackMs);
+    RecomputeReleaseCoeff();
 
     mWritePos = 0;
     mReadPos = 0;
@@ -58,6 +59,7 @@ public:
 
   void SetCurve(const float* curve, int curveSize) { mCurve = curve; mCurveSize = curveSize; }
   void SetRatio(float ratio) { mRatio = std::clamp(ratio, 0.02f, 1.f); }
+  void SetReleaseMs(float ms) { mReleaseMs = std::clamp(ms, 5.f, 2000.f); RecomputeReleaseCoeff(); }
 
   void Process(const float* in, float* out, int nFrames)
   {
@@ -80,6 +82,11 @@ public:
   }
 
 private:
+  void RecomputeReleaseCoeff()
+  {
+    mReleaseCoeff = 1.f - std::exp(-mHopDurationMs / mReleaseMs);
+  }
+
   void ReadRingIntoLinear(const std::vector<float>& ring, std::vector<float>& dst)
   {
     int start = mWritePos;
@@ -170,8 +177,20 @@ private:
       // "l'explosion des dynamiques" vient naturellement des deux cotes).
       float outputLevelDb = thresholdDb + (mEnvelopeDb[k] - thresholdDb) / mRatio;
       float gainDb = outputLevelDb - mEnvelopeDb[k];
-      gainDb = std::clamp(gainDb, -60.f, 40.f); // securite locale, en plus du limiteur final
-      float gainLin = std::pow(10.f, gainDb / 20.f);
+      gainDb = std::clamp(gainDb, -60.f, 24.f); // securite locale, en plus du limiteur final
+
+      // Lissage SEPARE, applique au GAIN lui-meme (pas juste au niveau
+      // detecte) - a Ratio bas, la formule ci-dessus amplifie enormement
+      // les petites fluctuations du niveau (diviser par un ratio proche
+      // de 0 peut transformer 1dB de variation en 50dB de variation de
+      // gain) - sans ce second lissage, ca cree des craquements/zipper
+      // audibles a chaque saut de hop.
+      if (gainDb > mGainSmoothDb[k])
+        mGainSmoothDb[k] += (gainDb - mGainSmoothDb[k]) * mAttackCoeff;
+      else
+        mGainSmoothDb[k] += (gainDb - mGainSmoothDb[k]) * mReleaseCoeff;
+
+      float gainLin = std::pow(10.f, mGainSmoothDb[k] / 20.f);
 
       mCplx[k] *= gainLin;
       if (k > 0 && k < numBins)
@@ -192,7 +211,6 @@ private:
   static constexpr float kPi = 3.14159265358979323846f;
   static constexpr float kFloorDb = -80.f;
   static constexpr float kAttackMs = 5.f;
-  static constexpr float kReleaseMs = 80.f;
 
   int mFFTSize = 1024;
   int mOverlap = 4;
@@ -206,9 +224,12 @@ private:
   int mCurveSize = 0;
   float mRatio = 1.f;
 
+  float mReleaseMs = 80.f;
+  float mHopDurationMs = 10.f;
   float mAttackCoeff = 0.5f;
   float mReleaseCoeff = 0.05f;
   std::vector<float> mEnvelopeDb;
+  std::vector<float> mGainSmoothDb;
 
   std::vector<float> mRing, mRingOut, mWindow, mTime;
   std::vector<cplx> mCplx;

@@ -26,6 +26,7 @@ enum EParams
   kParamSkew,
   kParamShapeMode,        // 0 = Type (sinus), 1 = Dessin libre
   kParamRatio,            // 0.02-1.0 : ratio du compresseur inverse (plus bas = plus extreme)
+  kParamRelease,          // 5-2000ms : relachement de l'enveloppe et du lissage de gain
   kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
   kNumParams
 };
