@@ -18,6 +18,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
   GetParam(kParamHarmonicInjection)->InitDouble("Injection", 0., 0., 100., 0.1, "%");
+  GetParam(kParamDecayExponent)->InitDouble("Decroiss.", 1., 0.2, 1., 0.001);
   GetParam(kParamTempDrive)->InitDouble("Drive", 0., 0., 100., 0.1, "%");
   GetParam(kParamDryWet)->InitDouble("Dry/Wet", 100., 0., 100., 0.1, "%");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
@@ -38,21 +39,23 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
     const IVStyle knobStyle = DEFAULT_STYLE.WithLabelText(IText(10.f, COLOR_WHITE));
 
     const IRECT bounds = pGraphics->GetBounds();
-    IRECT topRow = bounds.GetFromTop(60.f).GetPadded(-10.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 6).GetCentredInside(110.f, 40.f), kParamFFTSize, "FFT Size");
+    IRECT topRow = bounds.GetFromTop(130.f).GetPadded(-10.f);
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 7).GetCentredInside(110.f, 40.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 6).GetCentredInside(110.f, 40.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 7).GetCentredInside(110.f, 40.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamHarmonicInjection] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 6).GetCentredInside(50.f), kParamHarmonicInjection, "Injection", knobStyle);
+    mParamControls[kParamHarmonicInjection] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 7).GetCentredInside(100.f), kParamHarmonicInjection, "Injection", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamHarmonicInjection]);
-    mParamControls[kParamTempDrive] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 6).GetCentredInside(50.f), kParamTempDrive, "Drive", knobStyle);
+    mParamControls[kParamDecayExponent] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 7).GetCentredInside(100.f), kParamDecayExponent, "Decroiss.", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamDecayExponent]);
+    mParamControls[kParamTempDrive] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 7).GetCentredInside(100.f), kParamTempDrive, "Drive", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamTempDrive]);
-    mParamControls[kParamDryWet] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 6).GetCentredInside(50.f), kParamDryWet, "Dry/Wet", knobStyle);
+    mParamControls[kParamDryWet] = new IVKnobControl(topRow.GetGridCell(0, 5, 1, 7).GetCentredInside(50.f), kParamDryWet, "Dry/Wet", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamDryWet]);
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 5, 1, 6).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 6, 1, 7).GetCentredInside(50.f), kParamLimiterThreshold, "Limiteur", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
-    IRECT controlsRow = IRECT(bounds.L, bounds.T + 60.f, bounds.R, bounds.T + 180.f).GetPadded(-15.f);
+    IRECT controlsRow = IRECT(bounds.L, bounds.T + 130.f, bounds.R, bounds.T + 250.f).GetPadded(-15.f);
     mParamControls[kParamCycles] = new IVKnobControl(controlsRow.GetGridCell(0, 0, 1, 6).GetCentredInside(80.f), kParamCycles, "Cycles", knobStyle);
     pGraphics->AttachControl(mParamControls[kParamCycles]);
     mParamControls[kParamQ] = new IVKnobControl(controlsRow.GetGridCell(0, 1, 1, 6).GetCentredInside(80.f), kParamQ, "Q", knobStyle);
@@ -66,7 +69,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
     mParamControls[kParamShapeMode] = new IVMenuButtonControl(controlsRow.GetGridCell(0, 5, 1, 6).GetCentredInside(120.f, 40.f), kParamShapeMode, "Forme");
     pGraphics->AttachControl(mParamControls[kParamShapeMode]);
 
-    IRECT curveArea = IRECT(bounds.L, bounds.T + 180.f, bounds.R, bounds.B).GetPadded(-20.f);
+    IRECT curveArea = IRECT(bounds.L, bounds.T + 250.f, bounds.R, bounds.B).GetPadded(-20.f);
     mCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
       mDrawnShapeStorage.assign(data, data + size);
       mEngine.SetDrawnShape(data, size);
@@ -268,10 +271,13 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
   }
 
   float injection = (float)(GetParam(kParamHarmonicInjection)->Value() / 100.0);
+  float decayExponent = (float)GetParam(kParamDecayExponent)->Value();
   float tempDrive = (float)(GetParam(kParamTempDrive)->Value() / 100.0);
   float dryWet = (float)(GetParam(kParamDryWet)->Value() / 100.0);
   mDistortL.SetHarmonicInjection(injection);
   mDistortR.SetHarmonicInjection(injection);
+  mDistortL.SetDecayExponent(decayExponent);
+  mDistortR.SetDecayExponent(decayExponent);
   mDistortL.SetTempDrive(tempDrive);
   mDistortR.SetTempDrive(tempDrive);
 

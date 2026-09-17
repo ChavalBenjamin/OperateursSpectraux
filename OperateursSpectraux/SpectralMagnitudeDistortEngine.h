@@ -68,6 +68,7 @@ public:
 
   void SetCurve(const float* curve, int curveSize) { mCurve = curve; mCurveSize = curveSize; }
   void SetHarmonicInjection(float amount) { mHarmonicInjection = std::clamp(amount, 0.f, 1.f); }
+  void SetDecayExponent(float exponent) { mDecayExponent = std::clamp(exponent, 0.2f, 1.f); }
 
   // Courbe non-lineaire : 75% du parcours du bouton couvre les 15%
   // premiers de Drive (la zone la plus interessante, dilatee pour plus
@@ -219,7 +220,11 @@ private:
         {
           int targetBin = k * h;
           if (targetBin > numBins) break;
-          mMagInjected[targetBin] += srcMag * (mHarmonicInjection / (float)h);
+          // Decroissance reglable : exposant 1 = decroissance actuelle
+          // (÷n), exposant plus bas (jusque 0.2) = beaucoup plus plat,
+          // les harmoniques elevees restent presque aussi presentes que
+          // les basses - plus de complexite, plus d'energie globale.
+          mMagInjected[targetBin] += srcMag * (mHarmonicInjection / std::pow((float)h, mDecayExponent));
         }
       }
       std::copy(mMagInjected.begin(), mMagInjected.begin() + numBins + 1, mMagBuf.begin());
@@ -289,6 +294,7 @@ private:
   const float* mCurve = nullptr;
   int mCurveSize = 0;
   float mHarmonicInjection = 0.f;
+  float mDecayExponent = 1.f; // 1 = decroissance actuelle, 0.2 = presque plat
   float mTempDrive = 0.f;
 
   float mAttackCoeff = 0.5f;
