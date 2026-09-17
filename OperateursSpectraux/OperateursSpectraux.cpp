@@ -111,40 +111,6 @@ void OperateursSpectraux::SyncUIToState()
 #endif
 }
 
-bool OperateursSpectraux::SerializeState(IByteChunk& chunk) const
-{
-  bool success = SerializeParams(chunk);
-
-  int drawnShapeSize = (int)mDrawnShapeStorage.size();
-  chunk.Put(&drawnShapeSize);
-  for (float v : mDrawnShapeStorage)
-    chunk.Put(&v);
-
-  return success;
-}
-
-int OperateursSpectraux::UnserializeState(const IByteChunk& chunk, int startPos)
-{
-  int pos = UnserializeParams(chunk, startPos);
-
-  int size = 0;
-  pos = chunk.Get(&size, pos);
-  mDrawnShapeStorage.resize(std::max(0, size));
-  for (int i = 0; i < size; i++)
-    pos = chunk.Get(&mDrawnShapeStorage[i], pos);
-
-#if IPLUG_DSP
-  if (!mDrawnShapeStorage.empty())
-    mEngine.SetDrawnShape(mDrawnShapeStorage.data(), (int)mDrawnShapeStorage.size());
-
-  ApplyAllState();
-#endif
-
-  SyncUIToState();
-
-  return pos;
-}
-
 void OperateursSpectraux::ApplyAllState()
 {
 #if IPLUG_DSP

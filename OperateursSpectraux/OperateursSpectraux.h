@@ -42,8 +42,10 @@ public:
   void OnUIOpen() override { SyncUIToState(); }
   void OnUIClose() override { mCurveView = nullptr; for (auto& c : mParamControls) c = nullptr; }
 
-  bool SerializeState(IByteChunk& chunk) const override;
-  int UnserializeState(const IByteChunk& chunk, int startPos) override;
+  // SerializeState/UnserializeState RETIRES : provoquaient un crash grave
+  // de Reaper (VST3_SaveState, allocation memoire demesuree) - la
+  // sauvegarde du dessin sur disque est desactivee pour l'instant,
+  // a reprendre plus tard avec une approche plus prudente.
 
 #if IPLUG_DSP
   void ProcessBlock(sample** inputs, sample** outputs, int nFrames) override;
