@@ -29,6 +29,7 @@ public:
     mWritePos = 0;
     mGainEnv = 1.f;
     mReleaseCoeff = 1.f - std::exp(-1.f / (kReleaseMs * 0.001f * (float)mSampleRate));
+    mAttackCoeff = 1.f - std::exp(-1.f / (kAttackMs * 0.001f * (float)mSampleRate));
   }
 
   void SetThresholdDb(float db) { mThresholdLin = std::pow(10.f, db / 20.f); }
@@ -50,7 +51,7 @@ public:
       float targetGain = (peak > mThresholdLin) ? (mThresholdLin / peak) : 1.f;
 
       if (targetGain < mGainEnv)
-        mGainEnv = targetGain; // attaque immediate
+        mGainEnv += (targetGain - mGainEnv) * mAttackCoeff; // attaque tres rapide, mais plus un saut brut
       else
         mGainEnv = mGainEnv + (targetGain - mGainEnv) * mReleaseCoeff; // relachement progressif
 
@@ -63,6 +64,7 @@ public:
 
 private:
   static constexpr float kLookaheadMs = 5.f;
+  static constexpr float kAttackMs = 0.5f;
   static constexpr float kReleaseMs = 80.f;
 
   double mSampleRate = 44100.0;
@@ -71,5 +73,6 @@ private:
   int mWritePos = 0;
   float mThresholdLin = 1.f;
   float mGainEnv = 1.f;
+  float mAttackCoeff = 0.9f;
   float mReleaseCoeff = 0.01f;
 };

@@ -122,9 +122,14 @@ public:
 private:
   static float Waveshape(float x, float drive)
   {
-    if (drive <= 0.0001f) return x; // neutre exact
-    float k = 1.f + drive * kMaxDrive;
-    return std::tanh(x * k) / std::tanh(k);
+    if (drive <= 0.f) return x;
+    // Melange LINEAIRE entre x (identite) et une forme SATUREE FIXE - a
+    // drive=0, ca redonne x EXACTEMENT (propriete mathematique garantie,
+    // pas juste un cas special qui masquait une vraie discontinuite avec
+    // la formule generale juste au-dessus de 0).
+    constexpr float kFixedK = 1.f + kMaxDrive;
+    float saturated = std::tanh(x * kFixedK) / std::tanh(kFixedK);
+    return x + drive * (saturated - x);
   }
 
   void ReadRingIntoLinear(const std::vector<float>& ring, std::vector<float>& dst)
