@@ -57,6 +57,18 @@ public:
 
   void SetYAxisMarks(const std::vector<AxisMark>& marks) { mYMarks = marks; SetDirty(false); }
 
+  // Spectre audio en fond (magnitude en dB par bande) - purement visuel,
+  // dessine derriere la grille et la courbe.
+  void SetSpectrumData(const float* magDb, int numBins, double sampleRate, int fftSize)
+  {
+    mSpectrumSize = std::min(numBins, kMaxSpectrumBins);
+    for (int i = 0; i < mSpectrumSize; i++)
+      mSpectrumDb[i] = magDb[i];
+    mSpectrumSampleRate = sampleRate;
+    mSpectrumFFTSize = fftSize;
+    SetDirty(false);
+  }
+
   // Resultat final transforme (affiche quand on n'est pas en train de
   // dessiner activement).
   void SetCurve(const float* buf, int size)
@@ -99,6 +111,23 @@ public:
     float w = mRECT.W();
     float h = mRECT.H() * 0.42f;
     float midY = mRECT.MH();
+
+    // --- Spectre audio en fond (silhouette discrete, dessinee AVANT tout
+    // le reste pour rester derriere la grille et la courbe) ---
+    if (mSpectrumSize > 1)
+    {
+      const float dbFloor = -80.f, dbCeil = 0.f;
+      for (int k = 1; k < mSpectrumSize; k++) // saute la bande DC (k=0)
+      {
+        float freq = (float)k * (float)mSpectrumSampleRate / (float)mSpectrumFFTSize;
+        if (freq < 20.f || freq > 20000.f) continue;
+        float logPos = std::log(freq / 20.f) / std::log(20000.f / 20.f);
+        float x = mRECT.L + w * logPos;
+        float dbNorm = std::clamp((mSpectrumDb[k] - dbFloor) / (dbCeil - dbFloor), 0.f, 1.f);
+        float barHeight = dbNorm * mRECT.H() * 0.9f;
+        g.DrawLine(IColor(255, 40, 75, 65), x, mRECT.B, x, mRECT.B - barHeight, nullptr, 1.5f);
+      }
+    }
 
     // --- Reperes Hz fins (echelle log, 20Hz a 20kHz) : tous les 20Hz
     // jusque 100Hz, tous les 100Hz jusque 1000Hz, tous les 1k jusque 10k,
@@ -228,6 +257,12 @@ private:
   int mResultSize = 0;
 
   std::vector<AxisMark> mYMarks;
+
+  static constexpr int kMaxSpectrumBins = 1100;
+  float mSpectrumDb[kMaxSpectrumBins] = { -80.f };
+  int mSpectrumSize = 0;
+  double mSpectrumSampleRate = 44100.0;
+  int mSpectrumFFTSize = 2048;
 
   ShapeChangedFunc mOnShapeChanged;
 };

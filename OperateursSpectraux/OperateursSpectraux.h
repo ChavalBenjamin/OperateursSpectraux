@@ -5,6 +5,7 @@
 #include "SpectralCurvePreviewControl.h"
 #include "SpectralDelayEngine.h"
 #include "BrickwallLimiter.h"
+#include "SpectrumAnalyzer.h"
 #include <atomic>
 #include <mutex>
 
@@ -80,6 +81,14 @@ private:
   SpectralCurveEngine mEngine;
   SpectralDelayEngine mDelayL, mDelayR;
   BrickwallLimiter mLimiter;
+  SpectrumAnalyzer mAnalyzer;
+
+  // Meme principe que la courbe : calcule sur l'audio, copie sous mutex,
+  // lu par le thread interface.
+  std::mutex mSpectrumMutex;
+  std::atomic<bool> mSpectrumUIUpdated { false };
+  float mSpectrumUIBuf[1100] = { -80.f };
+  int mSpectrumUISize = 0;
 
   // La courbe (calculee sur le thread interface/parametres) est copiee ici
   // sous mutex, puis lue par le thread audio a chaque bloc.

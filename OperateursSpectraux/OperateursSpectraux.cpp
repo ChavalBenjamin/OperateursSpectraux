@@ -86,6 +86,10 @@ void OperateursSpectraux::OnIdle()
     mCurveView->SetCurve(mCurveUIBuf, mCurveUISize);
     mCurveView->SetDirty(false);
   }
+  if (mCurveView && mSpectrumUIUpdated.exchange(false))
+  {
+    mCurveView->SetSpectrumData(mSpectrumUIBuf, mSpectrumUISize, mAnalyzer.GetSampleRate(), mAnalyzer.GetFFTSize());
+  }
 #endif
 }
 
@@ -163,6 +167,7 @@ void OperateursSpectraux::ApplyAllState()
   UpdateYAxisMarks();
   mLimiter.Init(GetSampleRate());
   mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
+  mAnalyzer.Init(GetSampleRate());
 #endif
 }
 
@@ -304,6 +309,22 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
     bufL[i] = (float)inputs[0][i];
     bufR[i] = (float)inputs[1][i];
   }
+
+  // Analyseur de spectre (purement visuel) - alimente avec le signal
+  // ENTRANT (avant traitement), mixe L+R, pour servir de reference pendant
+  // qu'on sculpte la courbe.
+  static float bufMix[8192];
+  for (int i = 0; i < n; i++)
+    bufMix[i] = (bufL[i] + bufR[i]) * 0.5f;
+  mAnalyzer.Process(bufMix, n);
+  {
+    std::lock_guard<std::mutex> lock(mSpectrumMutex);
+    int numBins = std::min(mAnalyzer.GetNumBins(), 1100);
+    for (int i = 0; i < numBins; i++)
+      mSpectrumUIBuf[i] = mAnalyzer.GetMagnitudeDb()[i];
+    mSpectrumUISize = numBins;
+  }
+  mSpectrumUIUpdated.store(true);
 
   {
     std::lock_guard<std::mutex> lock(mCurveMutex);
