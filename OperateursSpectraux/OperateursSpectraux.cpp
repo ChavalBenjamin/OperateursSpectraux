@@ -152,11 +152,14 @@ void OperateursSpectraux::UpdateFFTConfig()
   mDryDelayR.assign(mDryDelaySize, 0.f);
   mDryDelayPos = 0;
 
-  // NOTE : SetLatency() est utilise ici pour la premiere fois dans ce
-  // projet, jamais verifie au prealable - a confirmer a la compilation.
-  // Informe l'hote (Reaper) de la latence reelle, pour qu'il puisse la
-  // compenser lui-meme sur l'ensemble de la piste/session (PDC).
-  SetLatency(mDryDelaySize);
+  // SetLatency() RETIRE : cause tres probable d'un crash reproductible
+  // precisement au changement de taille FFT (le seul endroit ou cette
+  // methode etait appelee) - jamais verifiee avant, et maintenant
+  // clairement impliquee. Le Dry/Wet reste correctement compense EN
+  // INTERNE (ligne ci-dessus) ; seul le signalement de la latence a
+  // l'hote (PDC) est desactive pour l'instant, a reprendre plus tard
+  // avec une methode confirmee plutot qu'une tentative a l'aveugle sur
+  // un point aussi sensible.
 }
 
 void OperateursSpectraux::UpdateEngine()

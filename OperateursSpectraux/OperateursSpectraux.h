@@ -44,13 +44,12 @@ public:
   void OnIdle() override;
   void OnUIOpen() override { SyncUIToState(); }
 
-  // Reinitialise tout (vide les tampons FFT/delai sec) a chaque
-  // activation - tentative pour eliminer les clics au play/stop, cause
-  // probable : nos tampons circulaires gardent leur contenu d'avant
-  // l'arret, qui se melange au nouvel audio a la reprise.
-#if IPLUG_DSP
-  void OnActivate(bool active) override { if (active) ApplyAllState(); }
-#endif
+  // OnActivate() RETIRE : ajoute pour tenter de regler les clics au
+  // play/stop, jamais confirme utile, et directement implique dans un
+  // vrai crash (acces via un pointeur nul, probablement declenche a un
+  // moment du cycle de vie ou certaines donnees n'etaient pas encore
+  // pretes). Retire par precaution plutot que de tenter une reparation
+  // a l'aveugle sur un point aussi sensible.
   void OnUIClose() override { mCurveView = nullptr; for (auto& c : mParamControls) c = nullptr; }
 
   // SerializeState/UnserializeState RETIRES : provoquaient un crash grave
