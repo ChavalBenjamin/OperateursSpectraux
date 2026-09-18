@@ -51,7 +51,7 @@ public:
     mOrigMagBuf.assign(mFFTSize, 0.f);
 
     int numBins = mFFTSize / 2 + 1;
-    mGainSmoothDb.assign(numBins, 0.f);
+    mMagSmoothDb.assign(numBins, kFloorDb);
 
     for (int i = 0; i < mFFTSize; i++)
       mWindow[i] = 0.5f - 0.5f * std::cos(2.f * kPi * i / (mFFTSize - 1));
@@ -213,15 +213,21 @@ private:
       energyBefore += mag * mag;
     }
 
-    // Passe 2 : injection harmonique.
+    // Passe 2 : injection harmonique. Le nombre d'harmoniques injectees
+    // grandit lui aussi avec Decroissance : 3 harmoniques (x2/x3/x4) a
+    // Decroissance=1, jusqu'a 11 (x2..x12) a Decroissance=0.2 - une
+    // harmonique de plus tous les 0.1 - combine avec la chute
+    // d'amplitude plus plate, l'effet devient bien plus audible sur
+    // toute la course du bouton.
     if (mHarmonicInjection > 0.001f)
     {
+      int maxHarmonic = 4 + (int)std::round((1.f - mDecayExponent) * 10.f);
       std::copy(mMagBuf.begin(), mMagBuf.begin() + numBins + 1, mMagInjected.begin());
       for (int k = 1; k <= numBins; k++)
       {
         float srcMag = mMagBuf[k];
         if (srcMag < 1e-6f) continue;
-        for (int h = 2; h <= 4; h++)
+        for (int h = 2; h <= maxHarmonic; h++)
         {
           int targetBin = k * h;
           if (targetBin > numBins) break;
@@ -246,23 +252,24 @@ private:
     float globalGain = std::sqrt(energyBefore / std::max(energyAfter, 1e-9f));
     globalGain = std::clamp(globalGain, 0.01f, 10.f);
 
-    // Passe 4 : lissage PAR BANDE du gain effectif (magnitude finale /
-    // magnitude d'origine), en dB, avec attaque/relachement - sans ca,
-    // chaque hop recalcule tout independamment => discontinuites/clics
-    // a chaque saut de bloc.
+    // Passe 4 : lissage PAR BANDE du niveau ABSOLU final (pas un rapport
+    // a l'origine) - avec l'Injection, une bande quasi silencieuse a
+    // l'origine peut recevoir beaucoup d'energie injectee : diviser par
+    // cette origine quasi-nulle rendait le rapport de gain numeriquement
+    // instable, causant des sauts brutaux precisement sur les bandes les
+    // plus interessantes (celles qui recoivent l'injection).
     for (int k = 0; k <= numBins; k++)
     {
       float finalMag = mMagBuf[k] * globalGain;
-      float origMag = std::max(mOrigMagBuf[k], 1e-9f);
-      float targetGainDb = 20.f * std::log10(std::max(finalMag, 1e-9f) / origMag);
+      float targetDb = 20.f * std::log10(std::max(finalMag, 1e-9f));
+      targetDb = std::max(targetDb, kFloorDb);
 
-      if (targetGainDb > mGainSmoothDb[k])
-        mGainSmoothDb[k] += (targetGainDb - mGainSmoothDb[k]) * mAttackCoeff;
+      if (targetDb > mMagSmoothDb[k])
+        mMagSmoothDb[k] += (targetDb - mMagSmoothDb[k]) * mAttackCoeff;
       else
-        mGainSmoothDb[k] += (targetGainDb - mGainSmoothDb[k]) * mReleaseCoeff;
+        mMagSmoothDb[k] += (targetDb - mMagSmoothDb[k]) * mReleaseCoeff;
 
-      float smoothedGain = std::pow(10.f, mGainSmoothDb[k] / 20.f);
-      float outMag = origMag * smoothedGain;
+      float outMag = std::pow(10.f, mMagSmoothDb[k] / 20.f);
       float outPhase = mPhaseBuf[k];
 
       cplx val(outMag * std::cos(outPhase), outMag * std::sin(outPhase));
@@ -287,6 +294,7 @@ private:
   static constexpr float kMaxDrive = 30.f;
   static constexpr float kSmoothAttackMs = 5.f;
   static constexpr float kSmoothReleaseMs = 15.f;
+  static constexpr float kFloorDb = -100.f;
 
   int mFFTSize = 1024;
   int mOverlap = 4;
@@ -304,7 +312,7 @@ private:
 
   float mAttackCoeff = 0.5f;
   float mReleaseCoeff = 0.2f;
-  std::vector<float> mGainSmoothDb;
+  std::vector<float> mMagSmoothDb;
 
   std::vector<float> mRing, mRingOut, mWindow, mTime;
   std::vector<cplx> mCplx;
