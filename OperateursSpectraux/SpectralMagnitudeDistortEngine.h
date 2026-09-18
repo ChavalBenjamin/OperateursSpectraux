@@ -47,6 +47,7 @@ public:
     mCplx.assign(mFFTSize, cplx(0.f, 0.f));
     mMagBuf.assign(mFFTSize, 0.f);
     mMagInjected.assign(mFFTSize, 0.f);
+    mMaxInjectionBuf.assign(mFFTSize, 0.f);
     mPhaseBuf.assign(mFFTSize, 0.f);
     mOrigMagBuf.assign(mFFTSize, 0.f);
 
@@ -223,6 +224,8 @@ private:
     {
       int maxHarmonic = 4 + (int)std::round((1.f - mDecayExponent) * 10.f);
       std::copy(mMagBuf.begin(), mMagBuf.begin() + numBins + 1, mMagInjected.begin());
+      std::fill(mMaxInjectionBuf.begin(), mMaxInjectionBuf.begin() + numBins + 1, 0.f);
+
       for (int k = 1; k <= numBins; k++)
       {
         float srcMag = mMagBuf[k];
@@ -235,9 +238,21 @@ private:
           // (÷n), exposant plus bas (jusque 0.2) = beaucoup plus plat,
           // les harmoniques elevees restent presque aussi presentes que
           // les basses - plus de complexite, plus d'energie globale.
-          mMagInjected[targetBin] += srcMag * (mHarmonicInjection / std::pow((float)h, mDecayExponent));
+          float contribution = srcMag * (mHarmonicInjection / std::pow((float)h, mDecayExponent));
+
+          // MAX plutot que SOMME : certaines bandes cibles (12, 24, 60...
+          // les indices "hautement composes") recoivent des contributions
+          // de PLUSIEURS sources en meme temps (x2 ET x3 ET x4 a la fois)
+          // - les additionner faisait exploser ces bandes precises en
+          // pics, d'autant plus visibles que la fenetre FFT est grande
+          // (plus de bandes = plus de ces points chauds). Ne garder que
+          // la contribution la plus forte evite l'accumulation.
+          mMaxInjectionBuf[targetBin] = std::max(mMaxInjectionBuf[targetBin], contribution);
         }
       }
+
+      for (int k = 0; k <= numBins; k++)
+        mMagInjected[k] = mMagBuf[k] + mMaxInjectionBuf[k];
       std::copy(mMagInjected.begin(), mMagInjected.begin() + numBins + 1, mMagBuf.begin());
     }
 
@@ -316,5 +331,5 @@ private:
 
   std::vector<float> mRing, mRingOut, mWindow, mTime;
   std::vector<cplx> mCplx;
-  std::vector<float> mMagBuf, mMagInjected, mPhaseBuf, mOrigMagBuf;
+  std::vector<float> mMagBuf, mMagInjected, mPhaseBuf, mOrigMagBuf, mMaxInjectionBuf;
 };
