@@ -18,7 +18,7 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
   GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
   GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
   GetParam(kParamHarmonicInjection)->InitDouble("Injection", 0., 0., 100., 0.1, "%");
-  GetParam(kParamDecayExponent)->InitDouble("Decroiss.", 1., 0.2, 1., 0.001);
+  GetParam(kParamDecayExponent)->InitDouble("Decroiss.", 1., 1., 0.2, 0.001); // inverse : 1 a gauche, 0.2 a droite
   GetParam(kParamTempDrive)->InitDouble("Drive", 0., 0., 100., 0.1, "%");
   GetParam(kParamDryWet)->InitDouble("Dry/Wet", 100., 0., 100., 0.1, "%");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
