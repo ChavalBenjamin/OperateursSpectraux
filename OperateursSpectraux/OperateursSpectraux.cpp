@@ -61,49 +61,56 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
     pGraphics->AttachPanelBackground(COLOR_GRAY);
     pGraphics->LoadFont("Roboto-Regular", ROBOTO_FN);
 
-    const IVStyle knobStyle = DEFAULT_STYLE.WithLabelText(IText(9.f, COLOR_WHITE));
-    const IColor kFilterBg(255, 60, 30, 40);   // rose terne
-    const IColor kDelayBg(255, 25, 55, 55);    // vert-bleu actuel
-    const IColor kDistoBg(255, 60, 25, 25);    // rouge terne
+    const IVStyle knobStyle = DEFAULT_STYLE.WithLabelText(IText(11.f, COLOR_WHITE));
+    // Couleur distincte pour les 4 parametres supplementaires (Feedback/
+    // Injection/Decroissance/Drive) - ambre, pour les distinguer des 6
+    // parametres de courbe communs a chaque module.
+    const IVStyle bonusStyle = DEFAULT_STYLE.WithLabelText(IText(11.f, COLOR_WHITE))
+                                             .WithColor(EVColor::kFG, IColor(255, 220, 160, 60))
+                                             .WithColor(EVColor::kPR, IColor(255, 240, 190, 90));
+    // Fonds eclaircis (plus de contraste avec le texte noir des boutons).
+    const IColor kFilterBg(255, 150, 95, 110);  // rose pale
+    const IColor kDelayBg(255, 90, 145, 145);   // vert-bleu pale
+    const IColor kDistoBg(255, 165, 95, 95);    // rouge pale
 
     const IRECT bounds = pGraphics->GetBounds();
 
     // --- Zone generale ---
-    IRECT generalRow = bounds.GetFromTop(70.f).GetPadded(-8.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(generalRow.GetGridCell(0, 0, 1, 4).GetCentredInside(100.f, 36.f), kParamFFTSize, "FFT Size");
+    IRECT generalRow = bounds.GetFromTop(110.f).GetPadded(-8.f);
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(generalRow.GetGridCell(0, 0, 1, 4).GetCentredInside(110.f, 44.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(generalRow.GetGridCell(0, 1, 1, 4).GetCentredInside(100.f, 36.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(generalRow.GetGridCell(0, 1, 1, 4).GetCentredInside(110.f, 44.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamRouting] = new IVMenuButtonControl(generalRow.GetGridCell(0, 2, 1, 4).GetCentredInside(160.f, 36.f), kParamRouting, "Routage");
+    mParamControls[kParamRouting] = new IVMenuButtonControl(generalRow.GetGridCell(0, 2, 1, 4).GetCentredInside(170.f, 44.f), kParamRouting, "Routage");
     pGraphics->AttachControl(mParamControls[kParamRouting]);
 
-    // Limiteur : gros bouton ROUGE, en bout de chaine, bien visible.
-    IVStyle limiterStyle = DEFAULT_STYLE.WithLabelText(IText(11.f, COLOR_WHITE))
+    // Limiteur : gros bouton ROUGE, en bout de chaine, bien visible, x2 comme les autres rotatifs.
+    IVStyle limiterStyle = DEFAULT_STYLE.WithLabelText(IText(12.f, COLOR_WHITE))
                                          .WithColor(EVColor::kFG, IColor(255, 200, 30, 30))
                                          .WithColor(EVColor::kPR, IColor(255, 230, 50, 50));
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(generalRow.GetGridCell(0, 3, 1, 4).GetCentredInside(60.f), kParamLimiterThreshold, "LIMITEUR", limiterStyle);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(generalRow.GetGridCell(0, 3, 1, 4).GetCentredInside(90.f), kParamLimiterThreshold, "LIMITEUR", limiterStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
-    float zoneH = (bounds.H() - 70.f) / 3.f;
-    float zoneTop = bounds.T + 70.f;
+    float zoneH = (bounds.H() - 110.f) / 3.f;
+    float zoneTop = bounds.T + 110.f;
 
-    // --- Zone Filtre (rose terne) ---
+    // --- Zone Filtre (rose pale) ---
     IRECT filterZone(bounds.L, zoneTop, bounds.R, zoneTop + zoneH);
     pGraphics->AttachControl(new IPanelControl(filterZone, kFilterBg));
     {
-      IRECT row1 = filterZone.GetFromTop(36.f).GetPadded(-6.f);
-      mParamControls[kParamFilterEnable] = new IVToggleControl(row1.GetFromLeft(90.f), kParamFilterEnable, "Filtre On/Off");
+      IRECT row1 = filterZone.GetFromTop(60.f).GetPadded(-8.f);
+      mParamControls[kParamFilterEnable] = new IVToggleControl(row1.GetFromLeft(120.f), kParamFilterEnable, "Filtre On/Off");
       pGraphics->AttachControl(mParamControls[kParamFilterEnable]);
 
-      IRECT row2 = IRECT(filterZone.L, row1.B, filterZone.R, row1.B + 70.f).GetPadded(-6.f);
+      IRECT row2 = IRECT(filterZone.L, row1.B, filterZone.R, row1.B + 130.f).GetPadded(-6.f);
       const char* labels[6] = { "Cycles", "Q", "Ballade", "Horizon", "Skew", "Forme" };
       int ids[6] = { kParamFilterCycles, kParamFilterQ, kParamFilterBallade, kParamFilterHorizon, kParamFilterSkew, kParamFilterShapeMode };
       for (int i = 0; i < 6; i++)
       {
         if (i == 5)
-          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(70.f, 30.f), ids[i], labels[i]);
+          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(100.f, 48.f), ids[i], labels[i]);
         else
-          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(46.f), ids[i], labels[i], knobStyle);
+          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(92.f), ids[i], labels[i], knobStyle);
         pGraphics->AttachControl(mParamControls[ids[i]]);
       }
 
@@ -116,27 +123,27 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
       pGraphics->AttachControl(mFilterCurveView);
     }
 
-    // --- Zone Delay (vert-bleu) ---
+    // --- Zone Delay (vert-bleu pale) ---
     IRECT delayZone(bounds.L, zoneTop + zoneH, bounds.R, zoneTop + 2.f * zoneH);
     pGraphics->AttachControl(new IPanelControl(delayZone, kDelayBg));
     {
-      IRECT row1 = delayZone.GetFromTop(36.f).GetPadded(-6.f);
-      mParamControls[kParamDelayEnable] = new IVToggleControl(row1.GetFromLeft(90.f), kParamDelayEnable, "Delay On/Off");
+      IRECT row1 = delayZone.GetFromTop(60.f).GetPadded(-8.f);
+      mParamControls[kParamDelayEnable] = new IVToggleControl(row1.GetFromLeft(120.f), kParamDelayEnable, "Delay On/Off");
       pGraphics->AttachControl(mParamControls[kParamDelayEnable]);
-      mParamControls[kParamDelayFeedback] = new IVKnobControl(row1.GetFromRight(180.f).GetFromLeft(70.f), kParamDelayFeedback, "Feedback", knobStyle);
+      mParamControls[kParamDelayFeedback] = new IVKnobControl(row1.GetFromRight(220.f).GetFromLeft(90.f), kParamDelayFeedback, "Feedback", bonusStyle);
       pGraphics->AttachControl(mParamControls[kParamDelayFeedback]);
-      mParamControls[kParamDelaySyncMode] = new IVToggleControl(row1.GetFromRight(90.f), kParamDelaySyncMode, "Sync BPM");
+      mParamControls[kParamDelaySyncMode] = new IVToggleControl(row1.GetFromRight(120.f), kParamDelaySyncMode, "Sync BPM");
       pGraphics->AttachControl(mParamControls[kParamDelaySyncMode]);
 
-      IRECT row2 = IRECT(delayZone.L, row1.B, delayZone.R, row1.B + 70.f).GetPadded(-6.f);
+      IRECT row2 = IRECT(delayZone.L, row1.B, delayZone.R, row1.B + 130.f).GetPadded(-6.f);
       const char* labels[6] = { "Cycles", "Q", "Ballade", "Horizon", "Skew", "Forme" };
       int ids[6] = { kParamDelayCycles, kParamDelayQ, kParamDelayBallade, kParamDelayHorizon, kParamDelaySkew, kParamDelayShapeMode };
       for (int i = 0; i < 6; i++)
       {
         if (i == 5)
-          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(70.f, 30.f), ids[i], labels[i]);
+          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(100.f, 48.f), ids[i], labels[i]);
         else
-          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(46.f), ids[i], labels[i], knobStyle);
+          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(92.f), ids[i], labels[i], knobStyle);
         pGraphics->AttachControl(mParamControls[ids[i]]);
       }
 
@@ -149,29 +156,29 @@ OperateursSpectraux::OperateursSpectraux(const InstanceInfo& info)
       pGraphics->AttachControl(mDelayCurveView);
     }
 
-    // --- Zone Distorsion (rouge terne) ---
+    // --- Zone Distorsion (rouge pale) ---
     IRECT distoZone(bounds.L, zoneTop + 2.f * zoneH, bounds.R, bounds.B);
     pGraphics->AttachControl(new IPanelControl(distoZone, kDistoBg));
     {
-      IRECT row1 = distoZone.GetFromTop(36.f).GetPadded(-6.f);
-      mParamControls[kParamDistoEnable] = new IVToggleControl(row1.GetFromLeft(90.f), kParamDistoEnable, "Disto On/Off");
+      IRECT row1 = distoZone.GetFromTop(60.f).GetPadded(-8.f);
+      mParamControls[kParamDistoEnable] = new IVToggleControl(row1.GetFromLeft(120.f), kParamDistoEnable, "Disto On/Off");
       pGraphics->AttachControl(mParamControls[kParamDistoEnable]);
-      mParamControls[kParamDistoInjection] = new IVKnobControl(row1.GetFromRight(270.f).GetFromLeft(70.f), kParamDistoInjection, "Injection", knobStyle);
+      mParamControls[kParamDistoInjection] = new IVKnobControl(row1.GetFromRight(330.f).GetFromLeft(90.f), kParamDistoInjection, "Injection", bonusStyle);
       pGraphics->AttachControl(mParamControls[kParamDistoInjection]);
-      mParamControls[kParamDistoDecay] = new IVKnobControl(row1.GetFromRight(180.f).GetFromLeft(70.f), kParamDistoDecay, "Decroiss.", knobStyle);
+      mParamControls[kParamDistoDecay] = new IVKnobControl(row1.GetFromRight(220.f).GetFromLeft(90.f), kParamDistoDecay, "Decroiss.", bonusStyle);
       pGraphics->AttachControl(mParamControls[kParamDistoDecay]);
-      mParamControls[kParamDistoDrive] = new IVKnobControl(row1.GetFromRight(90.f), kParamDistoDrive, "Drive", knobStyle);
+      mParamControls[kParamDistoDrive] = new IVKnobControl(row1.GetFromRight(110.f).GetFromLeft(90.f), kParamDistoDrive, "Drive", bonusStyle);
       pGraphics->AttachControl(mParamControls[kParamDistoDrive]);
 
-      IRECT row2 = IRECT(distoZone.L, row1.B, distoZone.R, row1.B + 70.f).GetPadded(-6.f);
+      IRECT row2 = IRECT(distoZone.L, row1.B, distoZone.R, row1.B + 130.f).GetPadded(-6.f);
       const char* labels[6] = { "Cycles", "Q", "Ballade", "Horizon", "Skew", "Forme" };
       int ids[6] = { kParamDistoCycles, kParamDistoQ, kParamDistoBallade, kParamDistoHorizon, kParamDistoSkew, kParamDistoShapeMode };
       for (int i = 0; i < 6; i++)
       {
         if (i == 5)
-          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(70.f, 30.f), ids[i], labels[i]);
+          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(100.f, 48.f), ids[i], labels[i]);
         else
-          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(46.f), ids[i], labels[i], knobStyle);
+          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(92.f), ids[i], labels[i], knobStyle);
         pGraphics->AttachControl(mParamControls[ids[i]]);
       }
 
