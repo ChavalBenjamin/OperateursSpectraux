@@ -3,6 +3,8 @@
 #include "IPlug_include_in_plug_hdr.h"
 #include "SpectralCurveEngine.h"
 #include "SpectralCurvePreviewControl.h"
+#include "SpectralFilterEngine.h"
+#include "SpectralDelayEngine.h"
 #include "SpectralMagnitudeDistortEngine.h"
 #include "BrickwallLimiter.h"
 #include "SpectrumAnalyzer.h"
@@ -10,26 +12,31 @@
 #include <mutex>
 
 // ============================================================================
-// Etape 5bis : Distorsion en magnitude - nouvelle_magnitude = magnitude ^
-// exposant, par bande, exposant pilote par la courbe partagee. Continu (pas
-// de seuil), compensation de gain. Stereo.
+// Etape 6 : Les Operateurs Spectraux - matrice complete. 3 modules
+// (Filtre/Delay/Distorsion), chacun avec sa propre courbe et son propre
+// On/Off, routables en serie (6 ordres possibles) ou en parallele.
+// Limiteur Brickwall toujours en toute derniere position. Stereo.
 // ============================================================================
 
 enum EParams
 {
-  kParamFFTSize = 0,   // 0=512, 1=1024, 2=2048, 3=4096, 4=8192
-  kParamOverlap,       // 0=2x, 1=4x
-  kParamCycles,
-  kParamQ,
-  kParamBallade,
-  kParamHorizon,
-  kParamSkew,
-  kParamShapeMode,        // 0 = Type (sinus), 1 = Dessin libre
-  kParamHarmonicInjection, // 0-100% : injection harmonique (x2/x3/x4)
-  kParamDecayExponent,    // 0.2-1.0 : decroissance de l'injection (1 = actuel, 0.2 = presque plat)
-  kParamTempDrive,        // 0-100% : distorsion temporelle (waveshaping)
-  kParamDryWet,           // 0-100% : melange signal sec (retarde) / traite
-  kParamLimiterThreshold, // dB - seuil du limiteur Brickwall final (securite)
+  kParamFFTSize = 0,
+  kParamOverlap,
+  kParamRouting, // 0-5 = les 6 ordres en serie, 6 = Parallele
+
+  kParamFilterEnable,
+  kParamFilterCycles, kParamFilterQ, kParamFilterBallade, kParamFilterHorizon, kParamFilterSkew, kParamFilterShapeMode,
+
+  kParamDelayEnable,
+  kParamDelayCycles, kParamDelayQ, kParamDelayBallade, kParamDelayHorizon, kParamDelaySkew, kParamDelayShapeMode,
+  kParamDelayFeedback, kParamDelaySyncMode,
+
+  kParamDistoEnable,
+  kParamDistoCycles, kParamDistoQ, kParamDistoBallade, kParamDistoHorizon, kParamDistoSkew, kParamDistoShapeMode,
+  kParamDistoInjection, kParamDistoDecay, kParamDistoDrive,
+
+  kParamLimiterThreshold,
+
   kNumParams
 };
 
@@ -43,19 +50,11 @@ public:
 
   void OnIdle() override;
   void OnUIOpen() override { SyncUIToState(); }
-
-  // OnActivate() RETIRE : ajoute pour tenter de regler les clics au
-  // play/stop, jamais confirme utile, et directement implique dans un
-  // vrai crash (acces via un pointeur nul, probablement declenche a un
-  // moment du cycle de vie ou certaines donnees n'etaient pas encore
-  // pretes). Retire par precaution plutot que de tenter une reparation
-  // a l'aveugle sur un point aussi sensible.
-  void OnUIClose() override { mCurveView = nullptr; for (auto& c : mParamControls) c = nullptr; }
-
-  // SerializeState/UnserializeState RETIRES : provoquaient un crash grave
-  // de Reaper (VST3_SaveState, allocation memoire demesuree) - la
-  // sauvegarde du dessin sur disque est desactivee pour l'instant,
-  // a reprendre plus tard avec une approche plus prudente.
+  void OnUIClose() override
+  {
+    mFilterCurveView = mDelayCurveView = mDistoCurveView = nullptr;
+    for (auto& c : mParamControls) c = nullptr;
+  }
 
 #if IPLUG_DSP
   void ProcessBlock(sample** inputs, sample** outputs, int nFrames) override;
@@ -64,54 +63,61 @@ public:
 #endif
 
 private:
-  SpectralCurvePreviewControl* mCurveView = nullptr;
+  SpectralCurvePreviewControl* mFilterCurveView = nullptr;
+  SpectralCurvePreviewControl* mDelayCurveView = nullptr;
+  SpectralCurvePreviewControl* mDistoCurveView = nullptr;
   IControl* mParamControls[kNumParams] = { nullptr };
 
-  std::vector<float> mDrawnShapeStorage;
+  std::vector<float> mFilterDrawnShape, mDelayDrawnShape, mDistoDrawnShape;
 
   void ApplyAllState();
   void SyncUIToState();
 
 #if IPLUG_DSP
   void UpdateFFTConfig();
-  void UpdateEngine();
-  void UpdateYAxisMarks();
+  void UpdateFilterCurve();
+  void UpdateDelayCurve();
+  void UpdateDistoCurve();
+  void UpdateDelayYAxisMarks();
+  void UpdateDistoYAxisMarks();
 
-  SpectralCurveEngine mEngine;
-  // Protege l'ENSEMBLE du moteur : Init() (redimensionne tous les
-  // tampons internes, thread principal, au changement de FFT Size) ne
-  // doit JAMAIS s'executer en meme temps que Process() (thread audio) -
-  // plus la taille FFT est grande, plus Init() prend de temps, plus la
-  // fenetre de collision sans ce verrou etait large (cause probable des
-  // craquements a 4096 et du crash a 8192).
-  std::mutex mEngineMutex;
+  SpectralCurveEngine mFilterEngine, mDelayEngine, mDistoEngine;
+  SpectralFilterEngine mFilterL, mFilterR;
+  SpectralDelayEngine mDelayL, mDelayR;
   SpectralMagnitudeDistortEngine mDistortL, mDistortR;
   BrickwallLimiter mLimiter;
   SpectrumAnalyzer mAnalyzer;
 
-  // Ligne a retard pour le signal SEC, alignee sur la latence du
-  // traitement (environ une fenetre FFT) - sans ca, melanger sec (instantane)
-  // et traite (retarde) creerait un decalage temporel audible.
-  // Protegee par mutex : redimensionnee au changement de FFT Size
-  // (thread principal), lue/ecrite en permanence par ProcessBlock
-  // (thread audio) - sans verrou, les deux threads pouvaient se marcher
-  // dessus (cause probable d'un crash reproduit precisement au
-  // changement de taille FFT pendant la lecture).
-  std::mutex mDryDelayMutex;
-  std::vector<float> mDryDelayL, mDryDelayR;
-  int mDryDelayPos = 0;
-  int mDryDelaySize = 1;
+  // Protege l'ENSEMBLE des 3 moteurs : Init() (thread principal, au
+  // changement de FFT Size) ne doit jamais s'executer en meme temps que
+  // Process() (thread audio) - lecon tiree d'un crash reproductible a
+  // grande taille FFT sur une version precedente.
+  std::mutex mEngineMutex;
 
-  std::mutex mCurveMutex;
-  std::vector<float> mSharedCurve;
+  std::mutex mFilterCurveMutex;
+  std::vector<float> mSharedFilterCurve;
+  std::mutex mDelayCurveMutex;
+  std::vector<float> mSharedDelayCurve;
+  std::mutex mDistoCurveMutex;
+  std::vector<float> mSharedDistoCurve;
+
+  std::mutex mDryDelayMutex; // reserve pour un usage futur (pas de Dry/Wet global pour l'instant)
 
   std::mutex mSpectrumMutex;
   std::atomic<bool> mSpectrumUIUpdated { false };
   float mSpectrumUIBuf[1100] = { -80.f };
   int mSpectrumUISize = 0;
 
-  std::atomic<bool> mCurveUIUpdated { false };
-  float mCurveUIBuf[512] = { 0.f };
-  int mCurveUISize = 0;
+  std::atomic<bool> mFilterCurveUIUpdated { false };
+  float mFilterCurveUIBuf[512] = { 0.f };
+  int mFilterCurveUISize = 0;
+
+  std::atomic<bool> mDelayCurveUIUpdated { false };
+  float mDelayCurveUIBuf[512] = { 0.f };
+  int mDelayCurveUISize = 0;
+
+  std::atomic<bool> mDistoCurveUIUpdated { false };
+  float mDistoCurveUIBuf[512] = { 0.f };
+  int mDistoCurveUISize = 0;
 #endif
 };
