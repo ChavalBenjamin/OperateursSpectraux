@@ -142,15 +142,23 @@ void OperateursSpectraux::UpdateFFTConfig()
   int overlapIdx = (int)GetParam(kParamOverlap)->Value();
   int overlap = (overlapIdx == 0) ? 2 : 4;
 
-  mDistortL.Init(fftSize, overlap, GetSampleRate());
-  mDistortR.Init(fftSize, overlap, GetSampleRate());
+  {
+    std::lock_guard<std::mutex> lock(mEngineMutex);
+    mDistortL.Init(fftSize, overlap, GetSampleRate());
+    mDistortR.Init(fftSize, overlap, GetSampleRate());
+  }
 
   // Ligne a retard du signal sec, alignee EXACTEMENT sur la latence du
   // traitement, pour que Dry/Wet ne cree pas de decalage temporel.
-  mDryDelaySize = std::max(1, mDistortL.GetLatencySamples());
-  mDryDelayL.assign(mDryDelaySize, 0.f);
-  mDryDelayR.assign(mDryDelaySize, 0.f);
-  mDryDelayPos = 0;
+  // Verrouillee : redimensionnee ici (thread principal), lue/ecrite par
+  // ProcessBlock (thread audio) - protege contre l'acces concurrent.
+  {
+    std::lock_guard<std::mutex> lock(mDryDelayMutex);
+    mDryDelaySize = std::max(1, mDistortL.GetLatencySamples());
+    mDryDelayL.assign(mDryDelaySize, 0.f);
+    mDryDelayR.assign(mDryDelaySize, 0.f);
+    mDryDelayPos = 0;
+  }
 
   // SetLatency() RETIRE : cause tres probable d'un crash reproductible
   // precisement au changement de taille FFT (le seul endroit ou cette
@@ -268,7 +276,8 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
   mSpectrumUIUpdated.store(true);
 
   {
-    std::lock_guard<std::mutex> lock(mCurveMutex);
+    std::lock_guard<std::mutex> curveLock(mCurveMutex);
+    std::lock_guard<std::mutex> engineLock(mEngineMutex);
     mDistortL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
     mDistortR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
   }
@@ -293,29 +302,41 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
     }
   }
   float dryWet = (float)(GetParam(kParamDryWet)->Value() / 100.0);
-  mDistortL.SetHarmonicInjection(injection);
-  mDistortR.SetHarmonicInjection(injection);
-  mDistortL.SetDecayExponent(decayExponent);
-  mDistortR.SetDecayExponent(decayExponent);
-  mDistortL.SetTempDrive(tempDrive);
-  mDistortR.SetTempDrive(tempDrive);
 
-  mDistortL.Process(bufL, outL, n);
-  mDistortR.Process(bufR, outR, n);
+  // Verrouille tout l'usage du moteur (reglages + traitement) pendant ce
+  // bloc - empeche Init() (thread principal) de s'executer au meme
+  // moment que Process() (ici).
+  {
+    std::lock_guard<std::mutex> lock(mEngineMutex);
+    mDistortL.SetHarmonicInjection(injection);
+    mDistortR.SetHarmonicInjection(injection);
+    mDistortL.SetDecayExponent(decayExponent);
+    mDistortR.SetDecayExponent(decayExponent);
+    mDistortL.SetTempDrive(tempDrive);
+    mDistortR.SetTempDrive(tempDrive);
+
+    mDistortL.Process(bufL, outL, n);
+    mDistortR.Process(bufR, outR, n);
+  }
 
   // Dry/Wet : le signal sec passe par sa PROPRE ligne a retard (alignee
   // sur la latence du traitement) avant d'etre melange, pour rester en
-  // phase avec le signal traite.
-  for (int i = 0; i < n; i++)
+  // phase avec le signal traite. Verrouille pour tout le bloc (pas par
+  // echantillon, pour rester rapide) - protege contre un redimensionnement
+  // concurrent depuis le thread principal (changement de FFT Size).
   {
-    float dryL = mDryDelayL[mDryDelayPos];
-    float dryR = mDryDelayR[mDryDelayPos];
-    mDryDelayL[mDryDelayPos] = bufL[i];
-    mDryDelayR[mDryDelayPos] = bufR[i];
-    mDryDelayPos = (mDryDelayPos + 1) % mDryDelaySize;
+    std::lock_guard<std::mutex> lock(mDryDelayMutex);
+    for (int i = 0; i < n; i++)
+    {
+      float dryL = mDryDelayL[mDryDelayPos];
+      float dryR = mDryDelayR[mDryDelayPos];
+      mDryDelayL[mDryDelayPos] = bufL[i];
+      mDryDelayR[mDryDelayPos] = bufR[i];
+      mDryDelayPos = (mDryDelayPos + 1) % mDryDelaySize;
 
-    outL[i] = dryL * (1.f - dryWet) + outL[i] * dryWet;
-    outR[i] = dryR * (1.f - dryWet) + outR[i] * dryWet;
+      outL[i] = dryL * (1.f - dryWet) + outL[i] * dryWet;
+      outR[i] = dryR * (1.f - dryWet) + outR[i] * dryWet;
+    }
   }
 
   mLimiter.ProcessStereo(outL, outR, n);

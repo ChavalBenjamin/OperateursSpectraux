@@ -78,6 +78,13 @@ private:
   void UpdateYAxisMarks();
 
   SpectralCurveEngine mEngine;
+  // Protege l'ENSEMBLE du moteur : Init() (redimensionne tous les
+  // tampons internes, thread principal, au changement de FFT Size) ne
+  // doit JAMAIS s'executer en meme temps que Process() (thread audio) -
+  // plus la taille FFT est grande, plus Init() prend de temps, plus la
+  // fenetre de collision sans ce verrou etait large (cause probable des
+  // craquements a 4096 et du crash a 8192).
+  std::mutex mEngineMutex;
   SpectralMagnitudeDistortEngine mDistortL, mDistortR;
   BrickwallLimiter mLimiter;
   SpectrumAnalyzer mAnalyzer;
@@ -85,6 +92,12 @@ private:
   // Ligne a retard pour le signal SEC, alignee sur la latence du
   // traitement (environ une fenetre FFT) - sans ca, melanger sec (instantane)
   // et traite (retarde) creerait un decalage temporel audible.
+  // Protegee par mutex : redimensionnee au changement de FFT Size
+  // (thread principal), lue/ecrite en permanence par ProcessBlock
+  // (thread audio) - sans verrou, les deux threads pouvaient se marcher
+  // dessus (cause probable d'un crash reproduit precisement au
+  // changement de taille FFT pendant la lecture).
+  std::mutex mDryDelayMutex;
   std::vector<float> mDryDelayL, mDryDelayR;
   int mDryDelayPos = 0;
   int mDryDelaySize = 1;
