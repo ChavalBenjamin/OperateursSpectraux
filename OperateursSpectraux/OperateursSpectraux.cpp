@@ -272,7 +272,23 @@ void OperateursSpectraux::ProcessBlock(sample** inputs, sample** outputs, int nF
 
   float injection = (float)(GetParam(kParamHarmonicInjection)->Value() / 100.0);
   float decayExponent = (float)GetParam(kParamDecayExponent)->Value();
-  float tempDrive = (float)(GetParam(kParamTempDrive)->Value() / 100.0);
+  // Courbe non-lineaire, appliquee ICI UNE SEULE FOIS (pas dans le
+  // moteur) : 75% du parcours du bouton couvre les 15% premiers de
+  // Drive, le reste suit une courbe exponentielle.
+  float tempDriveRaw = (float)(GetParam(kParamTempDrive)->Value() / 100.0);
+  float tempDrive;
+  {
+    constexpr float kSplitKnob = 0.75f;
+    constexpr float kSplitValue = 0.15f;
+    constexpr float kExpPower = 2.5f;
+    if (tempDriveRaw <= kSplitKnob)
+      tempDrive = (tempDriveRaw / kSplitKnob) * kSplitValue;
+    else
+    {
+      float s = (tempDriveRaw - kSplitKnob) / (1.f - kSplitKnob);
+      tempDrive = kSplitValue + (1.f - kSplitValue) * std::pow(s, kExpPower);
+    }
+  }
   float dryWet = (float)(GetParam(kParamDryWet)->Value() / 100.0);
   mDistortL.SetHarmonicInjection(injection);
   mDistortR.SetHarmonicInjection(injection);

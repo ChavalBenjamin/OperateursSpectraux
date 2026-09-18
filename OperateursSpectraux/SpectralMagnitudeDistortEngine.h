@@ -74,21 +74,10 @@ public:
   // Courbe non-lineaire : 75% du parcours du bouton couvre les 15%
   // premiers de Drive (la zone la plus interessante, dilatee pour plus
   // de precision), le reste suit une courbe exponentielle.
-  void SetTempDrive(float rawT)
-  {
-    rawT = std::clamp(rawT, 0.f, 1.f);
-    constexpr float kSplitKnob = 0.75f;
-    constexpr float kSplitValue = 0.15f;
-    constexpr float kExpPower = 2.5f;
-
-    if (rawT <= kSplitKnob)
-      mTempDrive = (rawT / kSplitKnob) * kSplitValue;
-    else
-    {
-      float s = (rawT - kSplitKnob) / (1.f - kSplitKnob);
-      mTempDrive = kSplitValue + (1.f - kSplitValue) * std::pow(s, kExpPower);
-    }
-  }
+  // Prend le drive DEJA deforme (0-1), aucune deformation ici - la
+  // courbe non-lineaire se fait UNE SEULE FOIS, cote plugin, pour eviter
+  // toute confusion/double application.
+  void SetTempDrive(float drive) { mTempDrive = std::clamp(drive, 0.f, 1.f); }
 
   // Latence de traitement introduite (en echantillons) - environ une
   // fenetre FFT complete pour ce type d'architecture (ring buffer STFT).
@@ -295,7 +284,22 @@ private:
 
     FFT(mCplx, true);
 
-    float normOverlap = 1.f / (float)mOverlap * 2.f;
+    // Securite supplementaire : mesure le pic REEL de ce hop reconstruit,
+    // et le ramene a une valeur raisonnable si besoin - deuxieme ligne
+    // de defense, AVANT meme le limiteur final. Des bandes VOISINES
+    // (proches en frequence) peuvent chacune recevoir une injection
+    // individuellement raisonnable, mais se combiner bien plus fort une
+    // fois reconverties en son reel - le plafond par bande (max au lieu
+    // de somme) ne protege pas contre CE cas precis.
+    float hopPeak = 0.f;
+    for (int i = 0; i < mFFTSize; i++)
+      hopPeak = std::max(hopPeak, std::abs(mCplx[i].real()));
+
+    float safetyGain = 1.f;
+    if (hopPeak > kHopPeakLimit)
+      safetyGain = kHopPeakLimit / hopPeak;
+
+    float normOverlap = 1.f / (float)mOverlap * 2.f * safetyGain;
     int start = mWritePos;
     for (int i = 0; i < mFFTSize; i++)
     {
@@ -308,8 +312,9 @@ private:
   static constexpr float kMaxExponent = 8.f;
   static constexpr float kMaxDrive = 30.f;
   static constexpr float kSmoothAttackMs = 5.f;
-  static constexpr float kSmoothReleaseMs = 15.f;
+  static constexpr float kSmoothReleaseMs = 30.f; // allonge (etait 15ms), plus doux globalement
   static constexpr float kFloorDb = -100.f;
+  static constexpr float kHopPeakLimit = 1.5f;
 
   int mFFTSize = 1024;
   int mOverlap = 4;
