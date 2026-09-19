@@ -9,46 +9,18 @@ SpectralDistortion::SpectralDistortion(const InstanceInfo& info)
 {
   GetParam(kParamFFTSize)->InitEnum("FFT Size", 2, 5, "", IParam::kFlagsNone, "", "512", "1024", "2048", "4096", "8192");
   GetParam(kParamOverlap)->InitEnum("Overlap", 1, 2, "", IParam::kFlagsNone, "", "2x (50%)", "4x (75%)");
-  GetParam(kParamRouting)->InitEnum("Routage", 0, 7, "", IParam::kFlagsNone, "",
-                                     "Filtre>Delay>Disto", "Filtre>Disto>Delay",
-                                     "Delay>Filtre>Disto", "Delay>Disto>Filtre",
-                                     "Disto>Filtre>Delay", "Disto>Delay>Filtre",
-                                     "Parallele");
-
-  GetParam(kParamFilterEnable)->InitBool("Filtre On", true);
-  GetParam(kParamFilterCycles)->InitDouble("F.Cycles", 1., 0., 24., 0.01);
-  GetParam(kParamFilterQ)->InitPercentage("F.Q", 50.);
-  GetParam(kParamFilterBallade)->InitPercentage("F.Ballade", 0.);
-  GetParam(kParamFilterHorizon)->InitPercentage("F.Horizon", 50.);
-  GetParam(kParamFilterSkew)->InitDouble("F.Skew", 1., 0.1, 6., 0.01);
-  GetParam(kParamFilterShapeMode)->InitEnum("F.Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
-
-  GetParam(kParamDelayEnable)->InitBool("Delay On", false);
-  GetParam(kParamDelayCycles)->InitDouble("D.Cycles", 1., 0., 24., 0.01);
-  GetParam(kParamDelayQ)->InitPercentage("D.Q", 50.);
-  GetParam(kParamDelayBallade)->InitPercentage("D.Ballade", 0.);
-  GetParam(kParamDelayHorizon)->InitPercentage("D.Horizon", 50.);
-  GetParam(kParamDelaySkew)->InitDouble("D.Skew", 1., 0.1, 6., 0.01);
-  GetParam(kParamDelayShapeMode)->InitEnum("D.Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
-  GetParam(kParamDelayFeedback)->InitDouble("D.Feedback", 0., 0., 95., 0.1, "%");
-  GetParam(kParamDelaySyncMode)->InitBool("D.Sync BPM", false);
-
-  GetParam(kParamDistoEnable)->InitBool("Disto On", false);
-  GetParam(kParamDistoCycles)->InitDouble("X.Cycles", 1., 0., 24., 0.01);
-  GetParam(kParamDistoQ)->InitPercentage("X.Q", 50.);
-  GetParam(kParamDistoBallade)->InitPercentage("X.Ballade", 0.);
-  GetParam(kParamDistoHorizon)->InitPercentage("X.Horizon", 50.);
-  GetParam(kParamDistoSkew)->InitDouble("X.Skew", 1., 0.1, 6., 0.01);
-  GetParam(kParamDistoShapeMode)->InitEnum("X.Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
-  GetParam(kParamDistoInjection)->InitDouble("X.Injection", 0., 0., 100., 0.1, "%");
-  GetParam(kParamDistoDecay)->InitDouble("X.Decroiss.", 1., 0.2, 1., 0.001);
-  GetParam(kParamDistoDrive)->InitDouble("X.Drive", 0., 0., 100., 0.1, "%");
-
+  GetParam(kParamCycles)->InitDouble("Cycles", 1., 0., 24., 0.01);
+  GetParam(kParamQ)->InitPercentage("Q", 50.);
+  GetParam(kParamBallade)->InitPercentage("Ballade", 0.);
+  GetParam(kParamHorizon)->InitPercentage("Horizon", 50.);
+  GetParam(kParamSkew)->InitDouble("Skew", 1., 0.1, 6., 0.01);
+  GetParam(kParamShapeMode)->InitEnum("Forme", 0, 2, "", IParam::kFlagsNone, "", "Type", "Dessin");
+  GetParam(kParamHarmonicInjection)->InitDouble("Injection", 0., 0., 100., 0.1, "%");
+  GetParam(kParamDecayExponent)->InitDouble("Decroiss.", 1., 0.2, 1., 0.001);
+  GetParam(kParamTempDrive)->InitDouble("Drive", 0., 0., 100., 0.1, "%");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
-  mFilterDrawnShape.assign(128, 0.f);
-  mDelayDrawnShape.assign(128, 0.f);
-  mDistoDrawnShape.assign(128, 0.f);
+  mDrawnShapeStorage.assign(128, 0.f);
 
 #if IPLUG_EDITOR
   mMakeGraphicsFunc = [&]() {
@@ -62,134 +34,54 @@ SpectralDistortion::SpectralDistortion(const InstanceInfo& info)
     pGraphics->LoadFont("Roboto-Regular", ROBOTO_FN);
 
     const IVStyle knobStyle = DEFAULT_STYLE.WithLabelText(IText(11.f, COLOR_WHITE));
-    // Couleur distincte pour les 4 parametres supplementaires (Feedback/
-    // Injection/Decroissance/Drive) - ambre, pour les distinguer des 6
-    // parametres de courbe communs a chaque module.
     const IVStyle bonusStyle = DEFAULT_STYLE.WithLabelText(IText(11.f, COLOR_WHITE))
                                              .WithColor(EVColor::kFG, IColor(255, 220, 160, 60))
                                              .WithColor(EVColor::kPR, IColor(255, 240, 190, 90));
-    // Fonds eclaircis (plus de contraste avec le texte noir des boutons).
-    const IColor kFilterBg(255, 150, 95, 110);  // rose pale
-    const IColor kDelayBg(255, 90, 145, 145);   // vert-bleu pale
-    const IColor kDistoBg(255, 165, 95, 95);    // rouge pale
 
     const IRECT bounds = pGraphics->GetBounds();
 
-    // --- Zone generale ---
-    IRECT generalRow = bounds.GetFromTop(110.f).GetPadded(-8.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(generalRow.GetGridCell(0, 0, 1, 4).GetCentredInside(110.f, 44.f), kParamFFTSize, "FFT Size");
+    // --- Rangee du haut : reglages generaux ---
+    IRECT topRow = bounds.GetFromTop(100.f).GetPadded(-10.f);
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 6).GetCentredInside(110.f, 44.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(generalRow.GetGridCell(0, 1, 1, 4).GetCentredInside(110.f, 44.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 6).GetCentredInside(110.f, 44.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamRouting] = new IVMenuButtonControl(generalRow.GetGridCell(0, 2, 1, 4).GetCentredInside(170.f, 44.f), kParamRouting, "Routage");
-    pGraphics->AttachControl(mParamControls[kParamRouting]);
+    mParamControls[kParamHarmonicInjection] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 6).GetCentredInside(90.f), kParamHarmonicInjection, "Injection", bonusStyle);
+    pGraphics->AttachControl(mParamControls[kParamHarmonicInjection]);
+    mParamControls[kParamDecayExponent] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 6).GetCentredInside(90.f), kParamDecayExponent, "Decroiss.", bonusStyle);
+    pGraphics->AttachControl(mParamControls[kParamDecayExponent]);
+    mParamControls[kParamTempDrive] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 6).GetCentredInside(90.f), kParamTempDrive, "Drive", bonusStyle);
+    pGraphics->AttachControl(mParamControls[kParamTempDrive]);
 
-    // Limiteur : gros bouton ROUGE, en bout de chaine, bien visible, x2 comme les autres rotatifs.
     IVStyle limiterStyle = DEFAULT_STYLE.WithLabelText(IText(12.f, COLOR_WHITE))
                                          .WithColor(EVColor::kFG, IColor(255, 200, 30, 30))
                                          .WithColor(EVColor::kPR, IColor(255, 230, 50, 50));
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(generalRow.GetGridCell(0, 3, 1, 4).GetCentredInside(90.f), kParamLimiterThreshold, "LIMITEUR", limiterStyle);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 5, 1, 6).GetCentredInside(90.f), kParamLimiterThreshold, "LIMITEUR", limiterStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
-    float zoneH = (bounds.H() - 110.f) / 3.f;
-    float zoneTop = bounds.T + 110.f;
+    // --- Rangee des 6 parametres de courbe ---
+    IRECT controlsRow = IRECT(bounds.L, bounds.T + 100.f, bounds.R, bounds.T + 230.f).GetPadded(-15.f);
+    mParamControls[kParamCycles] = new IVKnobControl(controlsRow.GetGridCell(0, 0, 1, 6).GetCentredInside(90.f), kParamCycles, "Cycles", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamCycles]);
+    mParamControls[kParamQ] = new IVKnobControl(controlsRow.GetGridCell(0, 1, 1, 6).GetCentredInside(90.f), kParamQ, "Q", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamQ]);
+    mParamControls[kParamBallade] = new IVKnobControl(controlsRow.GetGridCell(0, 2, 1, 6).GetCentredInside(90.f), kParamBallade, "Ballade", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamBallade]);
+    mParamControls[kParamHorizon] = new IVKnobControl(controlsRow.GetGridCell(0, 3, 1, 6).GetCentredInside(90.f), kParamHorizon, "Horizon", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamHorizon]);
+    mParamControls[kParamSkew] = new IVKnobControl(controlsRow.GetGridCell(0, 4, 1, 6).GetCentredInside(90.f), kParamSkew, "Skew", knobStyle);
+    pGraphics->AttachControl(mParamControls[kParamSkew]);
+    mParamControls[kParamShapeMode] = new IVMenuButtonControl(controlsRow.GetGridCell(0, 5, 1, 6).GetCentredInside(120.f, 48.f), kParamShapeMode, "Forme");
+    pGraphics->AttachControl(mParamControls[kParamShapeMode]);
 
-    // --- Zone Filtre (rose pale) ---
-    IRECT filterZone(bounds.L, zoneTop, bounds.R, zoneTop + zoneH);
-    pGraphics->AttachControl(new IPanelControl(filterZone, kFilterBg));
-    {
-      IRECT row1 = filterZone.GetFromTop(60.f).GetPadded(-8.f);
-      mParamControls[kParamFilterEnable] = new IVToggleControl(row1.GetFromLeft(120.f), kParamFilterEnable, "Filtre On/Off");
-      pGraphics->AttachControl(mParamControls[kParamFilterEnable]);
-
-      IRECT row2 = IRECT(filterZone.L, row1.B, filterZone.R, row1.B + 130.f).GetPadded(-6.f);
-      const char* labels[6] = { "Cycles", "Q", "Ballade", "Horizon", "Skew", "Forme" };
-      int ids[6] = { kParamFilterCycles, kParamFilterQ, kParamFilterBallade, kParamFilterHorizon, kParamFilterSkew, kParamFilterShapeMode };
-      for (int i = 0; i < 6; i++)
-      {
-        if (i == 5)
-          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(100.f, 48.f), ids[i], labels[i]);
-        else
-          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(92.f), ids[i], labels[i], knobStyle);
-        pGraphics->AttachControl(mParamControls[ids[i]]);
-      }
-
-      IRECT curveArea = IRECT(filterZone.L, row2.B, filterZone.R, filterZone.B).GetPadded(-10.f);
-      mFilterCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
-        mFilterDrawnShape.assign(data, data + size);
-        mFilterEngine.SetDrawnShape(data, size);
-        UpdateFilterCurve();
-      });
-      pGraphics->AttachControl(mFilterCurveView);
-    }
-
-    // --- Zone Delay (vert-bleu pale) ---
-    IRECT delayZone(bounds.L, zoneTop + zoneH, bounds.R, zoneTop + 2.f * zoneH);
-    pGraphics->AttachControl(new IPanelControl(delayZone, kDelayBg));
-    {
-      IRECT row1 = delayZone.GetFromTop(60.f).GetPadded(-8.f);
-      mParamControls[kParamDelayEnable] = new IVToggleControl(row1.GetFromLeft(120.f), kParamDelayEnable, "Delay On/Off");
-      pGraphics->AttachControl(mParamControls[kParamDelayEnable]);
-      mParamControls[kParamDelayFeedback] = new IVKnobControl(row1.GetFromRight(220.f).GetFromLeft(90.f), kParamDelayFeedback, "Feedback", bonusStyle);
-      pGraphics->AttachControl(mParamControls[kParamDelayFeedback]);
-      mParamControls[kParamDelaySyncMode] = new IVToggleControl(row1.GetFromRight(120.f), kParamDelaySyncMode, "Sync BPM");
-      pGraphics->AttachControl(mParamControls[kParamDelaySyncMode]);
-
-      IRECT row2 = IRECT(delayZone.L, row1.B, delayZone.R, row1.B + 130.f).GetPadded(-6.f);
-      const char* labels[6] = { "Cycles", "Q", "Ballade", "Horizon", "Skew", "Forme" };
-      int ids[6] = { kParamDelayCycles, kParamDelayQ, kParamDelayBallade, kParamDelayHorizon, kParamDelaySkew, kParamDelayShapeMode };
-      for (int i = 0; i < 6; i++)
-      {
-        if (i == 5)
-          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(100.f, 48.f), ids[i], labels[i]);
-        else
-          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(92.f), ids[i], labels[i], knobStyle);
-        pGraphics->AttachControl(mParamControls[ids[i]]);
-      }
-
-      IRECT curveArea = IRECT(delayZone.L, row2.B, delayZone.R, delayZone.B).GetPadded(-10.f);
-      mDelayCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
-        mDelayDrawnShape.assign(data, data + size);
-        mDelayEngine.SetDrawnShape(data, size);
-        UpdateDelayCurve();
-      });
-      pGraphics->AttachControl(mDelayCurveView);
-    }
-
-    // --- Zone Distorsion (rouge pale) ---
-    IRECT distoZone(bounds.L, zoneTop + 2.f * zoneH, bounds.R, bounds.B);
-    pGraphics->AttachControl(new IPanelControl(distoZone, kDistoBg));
-    {
-      IRECT row1 = distoZone.GetFromTop(60.f).GetPadded(-8.f);
-      mParamControls[kParamDistoEnable] = new IVToggleControl(row1.GetFromLeft(120.f), kParamDistoEnable, "Disto On/Off");
-      pGraphics->AttachControl(mParamControls[kParamDistoEnable]);
-      mParamControls[kParamDistoInjection] = new IVKnobControl(row1.GetFromRight(330.f).GetFromLeft(90.f), kParamDistoInjection, "Injection", bonusStyle);
-      pGraphics->AttachControl(mParamControls[kParamDistoInjection]);
-      mParamControls[kParamDistoDecay] = new IVKnobControl(row1.GetFromRight(220.f).GetFromLeft(90.f), kParamDistoDecay, "Decroiss.", bonusStyle);
-      pGraphics->AttachControl(mParamControls[kParamDistoDecay]);
-      mParamControls[kParamDistoDrive] = new IVKnobControl(row1.GetFromRight(110.f).GetFromLeft(90.f), kParamDistoDrive, "Drive", bonusStyle);
-      pGraphics->AttachControl(mParamControls[kParamDistoDrive]);
-
-      IRECT row2 = IRECT(distoZone.L, row1.B, distoZone.R, row1.B + 130.f).GetPadded(-6.f);
-      const char* labels[6] = { "Cycles", "Q", "Ballade", "Horizon", "Skew", "Forme" };
-      int ids[6] = { kParamDistoCycles, kParamDistoQ, kParamDistoBallade, kParamDistoHorizon, kParamDistoSkew, kParamDistoShapeMode };
-      for (int i = 0; i < 6; i++)
-      {
-        if (i == 5)
-          mParamControls[ids[i]] = new IVMenuButtonControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(100.f, 48.f), ids[i], labels[i]);
-        else
-          mParamControls[ids[i]] = new IVKnobControl(row2.GetGridCell(0, i, 1, 6).GetCentredInside(92.f), ids[i], labels[i], knobStyle);
-        pGraphics->AttachControl(mParamControls[ids[i]]);
-      }
-
-      IRECT curveArea = IRECT(distoZone.L, row2.B, distoZone.R, distoZone.B).GetPadded(-10.f);
-      mDistoCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
-        mDistoDrawnShape.assign(data, data + size);
-        mDistoEngine.SetDrawnShape(data, size);
-        UpdateDistoCurve();
-      });
-      pGraphics->AttachControl(mDistoCurveView);
-    }
+    // --- Courbe : le reste de l'espace, aussi grand que possible ---
+    IRECT curveArea = IRECT(bounds.L, bounds.T + 230.f, bounds.R, bounds.B).GetPadded(-20.f);
+    mCurveView = new SpectralCurvePreviewControl(curveArea, [this](const float* data, int size) {
+      mDrawnShapeStorage.assign(data, data + size);
+      mEngine.SetDrawnShape(data, size);
+      UpdateEngine();
+    });
+    pGraphics->AttachControl(mCurveView);
   };
 #endif
 
@@ -201,26 +93,14 @@ SpectralDistortion::SpectralDistortion(const InstanceInfo& info)
 void SpectralDistortion::OnIdle()
 {
 #if IPLUG_DSP
-  if (mFilterCurveView && mFilterCurveUIUpdated.exchange(false))
+  if (mCurveView && mCurveUIUpdated.exchange(false))
   {
-    mFilterCurveView->SetCurve(mFilterCurveUIBuf, mFilterCurveUISize);
-    mFilterCurveView->SetDirty(false);
+    mCurveView->SetCurve(mCurveUIBuf, mCurveUISize);
+    mCurveView->SetDirty(false);
   }
-  if (mDelayCurveView && mDelayCurveUIUpdated.exchange(false))
+  if (mCurveView && mSpectrumUIUpdated.exchange(false))
   {
-    mDelayCurveView->SetCurve(mDelayCurveUIBuf, mDelayCurveUISize);
-    mDelayCurveView->SetDirty(false);
-  }
-  if (mDistoCurveView && mDistoCurveUIUpdated.exchange(false))
-  {
-    mDistoCurveView->SetCurve(mDistoCurveUIBuf, mDistoCurveUISize);
-    mDistoCurveView->SetDirty(false);
-  }
-  if (mFilterCurveView && mSpectrumUIUpdated.exchange(false))
-  {
-    mFilterCurveView->SetSpectrumData(mSpectrumUIBuf, mSpectrumUISize, mAnalyzer.GetSampleRate(), mAnalyzer.GetFFTSize());
-    if (mDelayCurveView) mDelayCurveView->SetSpectrumData(mSpectrumUIBuf, mSpectrumUISize, mAnalyzer.GetSampleRate(), mAnalyzer.GetFFTSize());
-    if (mDistoCurveView) mDistoCurveView->SetSpectrumData(mSpectrumUIBuf, mSpectrumUISize, mAnalyzer.GetSampleRate(), mAnalyzer.GetFFTSize());
+    mCurveView->SetSpectrumData(mSpectrumUIBuf, mSpectrumUISize, mAnalyzer.GetSampleRate(), mAnalyzer.GetFFTSize());
   }
 #endif
 }
@@ -231,28 +111,16 @@ void SpectralDistortion::SyncUIToState()
     if (mParamControls[i])
       mParamControls[i]->SetValueFromDelegate(GetParam(i)->GetNormalized());
 
-  if (mFilterCurveView)
-  {
-    mFilterCurveView->SetDrawMode((int)GetParam(kParamFilterShapeMode)->Value() != 0);
-    if (!mFilterDrawnShape.empty())
-      mFilterCurveView->SetDrawnShapeExternal(mFilterDrawnShape.data(), (int)mFilterDrawnShape.size());
-  }
-  if (mDelayCurveView)
-  {
-    mDelayCurveView->SetDrawMode((int)GetParam(kParamDelayShapeMode)->Value() != 0);
-    if (!mDelayDrawnShape.empty())
-      mDelayCurveView->SetDrawnShapeExternal(mDelayDrawnShape.data(), (int)mDelayDrawnShape.size());
-  }
-  if (mDistoCurveView)
-  {
-    mDistoCurveView->SetDrawMode((int)GetParam(kParamDistoShapeMode)->Value() != 0);
-    if (!mDistoDrawnShape.empty())
-      mDistoCurveView->SetDrawnShapeExternal(mDistoDrawnShape.data(), (int)mDistoDrawnShape.size());
-  }
+  if (!mCurveView) return;
+
+  bool drawMode = (int)GetParam(kParamShapeMode)->Value() != 0;
+  mCurveView->SetDrawMode(drawMode);
+
+  if (!mDrawnShapeStorage.empty())
+    mCurveView->SetDrawnShapeExternal(mDrawnShapeStorage.data(), (int)mDrawnShapeStorage.size());
 
 #if IPLUG_DSP
-  UpdateDelayYAxisMarks();
-  UpdateDistoYAxisMarks();
+  UpdateYAxisMarks();
 #endif
 }
 
@@ -260,11 +128,8 @@ void SpectralDistortion::ApplyAllState()
 {
 #if IPLUG_DSP
   UpdateFFTConfig();
-  UpdateFilterCurve();
-  UpdateDelayCurve();
-  UpdateDistoCurve();
-  UpdateDelayYAxisMarks();
-  UpdateDistoYAxisMarks();
+  UpdateEngine();
+  UpdateYAxisMarks();
   mLimiter.Init(GetSampleRate());
   mLimiter.SetThresholdDb((float)GetParam(kParamLimiterThreshold)->Value());
   mAnalyzer.Init(GetSampleRate());
@@ -281,81 +146,43 @@ void SpectralDistortion::UpdateFFTConfig()
   int overlap = (overlapIdx == 0) ? 2 : 4;
 
   std::lock_guard<std::mutex> lock(mEngineMutex);
-  mFilterL.Init(fftSize, overlap); mFilterL.SetSampleRate(GetSampleRate());
-  mFilterR.Init(fftSize, overlap); mFilterR.SetSampleRate(GetSampleRate());
-  mDelayL.Init(fftSize, overlap, GetSampleRate());
-  mDelayR.Init(fftSize, overlap, GetSampleRate());
   mDistortL.Init(fftSize, overlap, GetSampleRate());
   mDistortR.Init(fftSize, overlap, GetSampleRate());
 }
 
-static void UpdateOneCurve(SpectralCurveEngine& engine, int paramCycles, int paramQ, int paramBallade,
-                            int paramHorizon, int paramSkew, int paramShapeMode,
-                            iplug::Plugin& plug, std::mutex& mtx, std::vector<float>& shared,
-                            float* uiBuf, int& uiSize, std::atomic<bool>& uiFlag)
+void SpectralDistortion::UpdateEngine()
 {
-  engine.SetSize(512);
-  engine.SetShapeMode((int)plug.GetParam(paramShapeMode)->Value() == 0
-                         ? SpectralCurveEngine::ShapeMode::Type
-                         : SpectralCurveEngine::ShapeMode::Draw);
-  engine.SetCycles((float)plug.GetParam(paramCycles)->Value());
-  engine.SetQ((float)(plug.GetParam(paramQ)->Value() / 100.0));
-  engine.SetBallade((float)(plug.GetParam(paramBallade)->Value() / 100.0));
-  engine.SetHorizon((float)(plug.GetParam(paramHorizon)->Value() / 100.0));
-  engine.SetSkew((float)plug.GetParam(paramSkew)->Value());
-  engine.RebuildIfNeeded();
+  mEngine.SetSize(512);
+  mEngine.SetShapeMode((int)GetParam(kParamShapeMode)->Value() == 0
+                          ? SpectralCurveEngine::ShapeMode::Type
+                          : SpectralCurveEngine::ShapeMode::Draw);
+  mEngine.SetCycles((float)GetParam(kParamCycles)->Value());
+  mEngine.SetQ((float)(GetParam(kParamQ)->Value() / 100.0));
+  mEngine.SetBallade((float)(GetParam(kParamBallade)->Value() / 100.0));
+  mEngine.SetHorizon((float)(GetParam(kParamHorizon)->Value() / 100.0));
+  mEngine.SetSkew((float)GetParam(kParamSkew)->Value());
+  mEngine.RebuildIfNeeded();
 
-  const float* curve = engine.GetCurve();
-  int size = engine.GetSize();
+  const float* curve = mEngine.GetCurve();
+  int size = mEngine.GetSize();
 
   {
-    std::lock_guard<std::mutex> lock(mtx);
-    shared.assign(curve, curve + size);
+    std::lock_guard<std::mutex> lock(mCurveMutex);
+    mSharedCurve.assign(curve, curve + size);
   }
-  uiSize = size;
-  for (int i = 0; i < size; i++) uiBuf[i] = curve[i];
-  uiFlag.store(true);
+  mCurveUISize = size;
+  for (int i = 0; i < size; i++) mCurveUIBuf[i] = curve[i];
+  mCurveUIUpdated.store(true);
 }
 
-void SpectralDistortion::UpdateFilterCurve()
+void SpectralDistortion::UpdateYAxisMarks()
 {
-  UpdateOneCurve(mFilterEngine, kParamFilterCycles, kParamFilterQ, kParamFilterBallade, kParamFilterHorizon,
-                 kParamFilterSkew, kParamFilterShapeMode, *this, mFilterCurveMutex, mSharedFilterCurve,
-                 mFilterCurveUIBuf, mFilterCurveUISize, mFilterCurveUIUpdated);
-}
-
-void SpectralDistortion::UpdateDelayCurve()
-{
-  UpdateOneCurve(mDelayEngine, kParamDelayCycles, kParamDelayQ, kParamDelayBallade, kParamDelayHorizon,
-                 kParamDelaySkew, kParamDelayShapeMode, *this, mDelayCurveMutex, mSharedDelayCurve,
-                 mDelayCurveUIBuf, mDelayCurveUISize, mDelayCurveUIUpdated);
-}
-
-void SpectralDistortion::UpdateDistoCurve()
-{
-  UpdateOneCurve(mDistoEngine, kParamDistoCycles, kParamDistoQ, kParamDistoBallade, kParamDistoHorizon,
-                 kParamDistoSkew, kParamDistoShapeMode, *this, mDistoCurveMutex, mSharedDistoCurve,
-                 mDistoCurveUIBuf, mDistoCurveUISize, mDistoCurveUIUpdated);
-}
-
-void SpectralDistortion::UpdateDelayYAxisMarks()
-{
-  if (!mDelayCurveView) return;
-  std::vector<SpectralCurvePreviewControl::AxisMark> marks;
-  marks.push_back({ -1.f, "0 ms", false });
-  marks.push_back({ 0.f, "1.25 s", true });
-  marks.push_back({ 1.f, "2.5 s", false });
-  mDelayCurveView->SetYAxisMarks(marks);
-}
-
-void SpectralDistortion::UpdateDistoYAxisMarks()
-{
-  if (!mDistoCurveView) return;
+  if (!mCurveView) return;
   std::vector<SpectralCurvePreviewControl::AxisMark> marks;
   marks.push_back({ -1.f, "Exp 0.125", false });
   marks.push_back({ 0.f, "Exp 1 (neutre)", true });
   marks.push_back({ 1.f, "Exp 8", false });
-  mDistoCurveView->SetYAxisMarks(marks);
+  mCurveView->SetYAxisMarks(marks);
 }
 
 void SpectralDistortion::OnReset()
@@ -372,31 +199,17 @@ void SpectralDistortion::OnParamChange(int paramIdx)
       UpdateFFTConfig();
       break;
 
-    case kParamFilterShapeMode:
-      if (mFilterCurveView) mFilterCurveView->SetDrawMode((int)GetParam(kParamFilterShapeMode)->Value() != 0);
-      UpdateFilterCurve();
-      break;
-    case kParamFilterCycles: case kParamFilterQ: case kParamFilterBallade:
-    case kParamFilterHorizon: case kParamFilterSkew:
-      UpdateFilterCurve();
+    case kParamShapeMode:
+      if (mCurveView) mCurveView->SetDrawMode((int)GetParam(kParamShapeMode)->Value() != 0);
+      UpdateEngine();
       break;
 
-    case kParamDelayShapeMode:
-      if (mDelayCurveView) mDelayCurveView->SetDrawMode((int)GetParam(kParamDelayShapeMode)->Value() != 0);
-      UpdateDelayCurve();
-      break;
-    case kParamDelayCycles: case kParamDelayQ: case kParamDelayBallade:
-    case kParamDelayHorizon: case kParamDelaySkew:
-      UpdateDelayCurve();
-      break;
-
-    case kParamDistoShapeMode:
-      if (mDistoCurveView) mDistoCurveView->SetDrawMode((int)GetParam(kParamDistoShapeMode)->Value() != 0);
-      UpdateDistoCurve();
-      break;
-    case kParamDistoCycles: case kParamDistoQ: case kParamDistoBallade:
-    case kParamDistoHorizon: case kParamDistoSkew:
-      UpdateDistoCurve();
+    case kParamCycles:
+    case kParamQ:
+    case kParamBallade:
+    case kParamHorizon:
+    case kParamSkew:
+      UpdateEngine();
       break;
 
     case kParamLimiterThreshold:
@@ -410,9 +223,7 @@ void SpectralDistortion::OnParamChange(int paramIdx)
 
 void SpectralDistortion::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
 {
-  static float bufL[8192], bufR[8192];
-  static float stageL[8192], stageR[8192];
-  static float outFL[8192], outFR[8192], outDL[8192], outDR[8192], outXL[8192], outXR[8192];
+  static float bufL[8192], bufR[8192], outL[8192], outR[8192];
   int n = std::min(nFrames, 8192);
 
   for (int i = 0; i < n; i++) { bufL[i] = (float)inputs[0][i]; bufR[i] = (float)inputs[1][i]; }
@@ -428,84 +239,33 @@ void SpectralDistortion::ProcessBlock(sample** inputs, sample** outputs, int nFr
   }
   mSpectrumUIUpdated.store(true);
 
-  bool filterOn = GetParam(kParamFilterEnable)->Value() != 0.;
-  bool delayOn = GetParam(kParamDelayEnable)->Value() != 0.;
-  bool distoOn = GetParam(kParamDistoEnable)->Value() != 0.;
-  int routing = (int)GetParam(kParamRouting)->Value();
+  float injection = (float)(GetParam(kParamHarmonicInjection)->Value() / 100.0);
+  float decayExponent = (float)GetParam(kParamDecayExponent)->Value();
+  float driveRaw = (float)(GetParam(kParamTempDrive)->Value() / 100.0);
+  float drive;
+  {
+    constexpr float kSplitKnob = 0.75f, kSplitValue = 0.15f, kExpPower = 2.5f;
+    if (driveRaw <= kSplitKnob) drive = (driveRaw / kSplitKnob) * kSplitValue;
+    else { float s = (driveRaw - kSplitKnob) / (1.f - kSplitKnob); drive = kSplitValue + (1.f - kSplitValue) * std::pow(s, kExpPower); }
+  }
 
   {
-    std::lock_guard<std::mutex> lockF(mFilterCurveMutex);
-    std::lock_guard<std::mutex> lockD(mDelayCurveMutex);
-    std::lock_guard<std::mutex> lockX(mDistoCurveMutex);
-    std::lock_guard<std::mutex> lockE(mEngineMutex);
+    std::lock_guard<std::mutex> curveLock(mCurveMutex);
+    std::lock_guard<std::mutex> engineLock(mEngineMutex);
 
-    mFilterL.SetCurve(mSharedFilterCurve.data(), (int)mSharedFilterCurve.size());
-    mFilterR.SetCurve(mSharedFilterCurve.data(), (int)mSharedFilterCurve.size());
-
-    mDelayL.SetCurve(mSharedDelayCurve.data(), (int)mSharedDelayCurve.size());
-    mDelayR.SetCurve(mSharedDelayCurve.data(), (int)mSharedDelayCurve.size());
-    float feedback = (float)(GetParam(kParamDelayFeedback)->Value() / 100.0);
-    bool delaySync = GetParam(kParamDelaySyncMode)->Value() != 0.;
-    mDelayL.SetFeedback(feedback); mDelayR.SetFeedback(feedback);
-    mDelayL.SetSyncMode(delaySync); mDelayR.SetSyncMode(delaySync);
-    double bpm = GetTempo(); // confirmee fonctionnelle (utilisee dans MagniPhase)
-    mDelayL.SetBPM(bpm); mDelayR.SetBPM(bpm);
-
-    mDistortL.SetCurve(mSharedDistoCurve.data(), (int)mSharedDistoCurve.size());
-    mDistortR.SetCurve(mSharedDistoCurve.data(), (int)mSharedDistoCurve.size());
-    float injection = (float)(GetParam(kParamDistoInjection)->Value() / 100.0);
-    float decayExponent = (float)GetParam(kParamDistoDecay)->Value();
-    float driveRaw = (float)(GetParam(kParamDistoDrive)->Value() / 100.0);
-    float drive;
-    {
-      constexpr float kSplitKnob = 0.75f, kSplitValue = 0.15f, kExpPower = 2.5f;
-      if (driveRaw <= kSplitKnob) drive = (driveRaw / kSplitKnob) * kSplitValue;
-      else { float s = (driveRaw - kSplitKnob) / (1.f - kSplitKnob); drive = kSplitValue + (1.f - kSplitValue) * std::pow(s, kExpPower); }
-    }
+    mDistortL.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
+    mDistortR.SetCurve(mSharedCurve.data(), (int)mSharedCurve.size());
     mDistortL.SetHarmonicInjection(injection); mDistortR.SetHarmonicInjection(injection);
     mDistortL.SetDecayExponent(decayExponent); mDistortR.SetDecayExponent(decayExponent);
     mDistortL.SetTempDrive(drive); mDistortR.SetTempDrive(drive);
 
-    if (routing == 6) // Parallele : les 3 traitent le MEME signal d'origine, sommes
-    {
-      if (filterOn) { mFilterL.Process(bufL, outFL, n); mFilterR.Process(bufR, outFR, n); }
-      if (delayOn)  { mDelayL.Process(bufL, outDL, n); mDelayR.Process(bufR, outDR, n); }
-      if (distoOn)  { mDistortL.Process(bufL, outXL, n); mDistortR.Process(bufR, outXR, n); }
-
-      int activeCount = (filterOn ? 1 : 0) + (delayOn ? 1 : 0) + (distoOn ? 1 : 0);
-      float norm = activeCount > 0 ? 1.f / std::sqrt((float)activeCount) : 1.f;
-
-      for (int i = 0; i < n; i++)
-      {
-        float sL = 0.f, sR = 0.f;
-        if (filterOn) { sL += outFL[i]; sR += outFR[i]; }
-        if (delayOn)  { sL += outDL[i]; sR += outDR[i]; }
-        if (distoOn)  { sL += outXL[i]; sR += outXR[i]; }
-        stageL[i] = activeCount > 0 ? sL * norm : bufL[i];
-        stageR[i] = activeCount > 0 ? sR * norm : bufR[i];
-      }
-    }
-    else // Serie : un des 6 ordres, modules OFF simplement sautes (bypass)
-    {
-      static const int orders[6][3] = {
-        {0,1,2}, {0,2,1}, {1,0,2}, {1,2,0}, {2,0,1}, {2,1,0}
-      };
-      std::copy(bufL, bufL + n, stageL);
-      std::copy(bufR, bufR + n, stageR);
-
-      for (int stage = 0; stage < 3; stage++)
-      {
-        int moduleIdx = orders[routing][stage];
-        if (moduleIdx == 0 && filterOn) { mFilterL.Process(stageL, stageL, n); mFilterR.Process(stageR, stageR, n); }
-        else if (moduleIdx == 1 && delayOn) { mDelayL.Process(stageL, stageL, n); mDelayR.Process(stageR, stageR, n); }
-        else if (moduleIdx == 2 && distoOn) { mDistortL.Process(stageL, stageL, n); mDistortR.Process(stageR, stageR, n); }
-      }
-    }
+    mDistortL.Process(bufL, outL, n);
+    mDistortR.Process(bufR, outR, n);
   }
 
-  mLimiter.ProcessStereo(stageL, stageR, n);
+  mLimiter.ProcessStereo(outL, outR, n);
 
-  for (int i = 0; i < n; i++) { outputs[0][i] = stageL[i]; outputs[1][i] = stageR[i]; }
+  for (int i = 0; i < n; i++) { outputs[0][i] = outL[i]; outputs[1][i] = outR[i]; }
 }
 
 #endif
