@@ -1,19 +1,19 @@
-#define PLUG_NAME "OperateursSpectraux"
+#define PLUG_NAME "SpectralDistortion"
 #define PLUG_MFR "BEnjaminChaval"
 #define PLUG_VERSION_HEX 0x00000000
 #define PLUG_VERSION_STR "0.0.0"
-#define PLUG_UNIQUE_ID 'aVYk'
+#define PLUG_UNIQUE_ID 'SpDi'
 #define PLUG_MFR_ID 'Acme'
 #define PLUG_URL_STR "https://iplug2.github.io"
 #define PLUG_EMAIL_STR "spam@me.com"
 #define PLUG_COPYRIGHT_STR "Copyright 2025 Acme Inc"
-#define PLUG_CLASS_NAME OperateursSpectraux
+#define PLUG_CLASS_NAME SpectralDistortion
 
-#define BUNDLE_NAME "OperateursSpectraux"
+#define BUNDLE_NAME "SpectralDistortion"
 #define BUNDLE_MFR "BEnjaminChaval"
 #define BUNDLE_DOMAIN "com"
 
-#define SHARED_RESOURCES_SUBPATH "OperateursSpectraux"
+#define SHARED_RESOURCES_SUBPATH "SpectralDistortion"
 
 #define PLUG_CHANNEL_IO "2-2"
 
@@ -34,16 +34,16 @@
 #define PLUG_MAX_WIDTH 8192
 #define PLUG_MAX_HEIGHT 8192
 
-#define AUV2_ENTRY OperateursSpectraux_Entry
-#define AUV2_ENTRY_STR "OperateursSpectraux_Entry"
-#define AUV2_FACTORY OperateursSpectraux_Factory
-#define AUV2_VIEW_CLASS OperateursSpectraux_View
-#define AUV2_VIEW_CLASS_STR "OperateursSpectraux_View"
+#define AUV2_ENTRY SpectralDistortion_Entry
+#define AUV2_ENTRY_STR "SpectralDistortion_Entry"
+#define AUV2_FACTORY SpectralDistortion_Factory
+#define AUV2_VIEW_CLASS SpectralDistortion_View
+#define AUV2_VIEW_CLASS_STR "SpectralDistortion_View"
 
 #define AAX_TYPE_IDS 'ITP1'
 #define AAX_TYPE_IDS_AUDIOSUITE 'ITA1'
 #define AAX_PLUG_MFR_STR "Acme"
-#define AAX_PLUG_NAME_STR "OperateursSpectraux\nIPEF"
+#define AAX_PLUG_NAME_STR "SpectralDistortion\nIPEF"
 #define AAX_PLUG_CATEGORY_STR "Effect"
 #define AAX_DOES_AUDIOSUITE 1
 
