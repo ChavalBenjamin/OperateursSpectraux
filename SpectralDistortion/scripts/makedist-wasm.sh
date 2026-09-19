@@ -14,7 +14,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/.."
 IPLUG2_ROOT="$SCRIPT_DIR/../../iPlug2"
 
-PROJECT_NAME=OperateursSpectraux
+PROJECT_NAME=SpectralDistortion
 PROJECT_NAME_LC=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
 EMRUN_BROWSER=chrome
 LAUNCH_EMRUN=1

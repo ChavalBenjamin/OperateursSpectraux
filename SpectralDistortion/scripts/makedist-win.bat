@@ -20,10 +20,10 @@ echo ZIP_ARG %ZIP_ARG%
 echo END SCRIPT VARIABLES -----------------------------------------------------
 
 if %DEMO_ARG% == "demo" (
-  echo Making OperateursSpectraux Windows DEMO VERSION distribution ...
+  echo Making SpectralDistortion Windows DEMO VERSION distribution ...
   set DEMO=1
 ) else (
-  echo Making OperateursSpectraux Windows FULL VERSION distribution ...
+  echo Making SpectralDistortion Windows FULL VERSION distribution ...
   set DEMO=0
 )
 
@@ -69,11 +69,11 @@ if %DEMO% == 1 (
 )
 
 REM - Could build individual targets like this:
-REM - msbuild OperateursSpectraux-app.vcxproj /p:configuration=release /p:platform=x64
+REM - msbuild SpectralDistortion-app.vcxproj /p:configuration=release /p:platform=x64
 
 echo Building x64 binaries...
 REM add projects with /t to build VST2 and AAX
-msbuild OperateursSpectraux.sln /t:OperateursSpectraux-app;OperateursSpectraux-vst3;OperateursSpectraux-clap /p:configuration=release /p:platform=x64 /nologo /verbosity:minimal /fileLogger /m /flp:logfile=build-win.log;errorsonly
+msbuild SpectralDistortion.sln /t:SpectralDistortion-app;SpectralDistortion-vst3;SpectralDistortion-clap /p:configuration=release /p:platform=x64 /nologo /verbosity:minimal /fileLogger /m /flp:logfile=build-win.log;errorsonly
 if %ERRORLEVEL% neq 0 (
   echo ERROR: x64 build failed
   type build-win.log
@@ -81,7 +81,7 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo Building ARM64EC binaries...
-msbuild OperateursSpectraux.sln /t:OperateursSpectraux-app;OperateursSpectraux-vst3;OperateursSpectraux-clap /p:configuration=release /p:platform=ARM64EC /nologo /verbosity:minimal /fileLogger /m /flp:logfile=build-win-arm64ec.log;errorsonly
+msbuild SpectralDistortion.sln /t:SpectralDistortion-app;SpectralDistortion-vst3;SpectralDistortion-clap /p:configuration=release /p:platform=ARM64EC /nologo /verbosity:minimal /fileLogger /m /flp:logfile=build-win-arm64ec.log;errorsonly
 if %ERRORLEVEL% neq 0 (
   echo ERROR: ARM64EC build failed
   type build-win-arm64ec.log
@@ -93,8 +93,8 @@ REM --echo Copying AAX Presets
 REM --echo ------------------------------------------------------------------
 REM --echo Code sign AAX binary...
 REM --info at pace central, login via iLok license manager https://www.paceap.com/pace-central.html
-REM --wraptool sign --verbose --account XXXXX --wcguid XXXXX --keyfile XXXXX.p12 --keypassword XXXXX --in .\build-win\aax\bin\OperateursSpectraux.aaxplugin\Contents\Win32\OperateursSpectraux.aaxplugin --out .\build-win\aax\bin\OperateursSpectraux.aaxplugin\Contents\Win32\OperateursSpectraux.aaxplugin
-REM --wraptool sign --verbose --account XXXXX --wcguid XXXXX --keyfile XXXXX.p12 --keypassword XXXXX --in .\build-win\aax\bin\OperateursSpectraux.aaxplugin\Contents\x64\OperateursSpectraux.aaxplugin --out .\build-win\aax\bin\OperateursSpectraux.aaxplugin\Contents\x64\OperateursSpectraux.aaxplugin
+REM --wraptool sign --verbose --account XXXXX --wcguid XXXXX --keyfile XXXXX.p12 --keypassword XXXXX --in .\build-win\aax\bin\SpectralDistortion.aaxplugin\Contents\Win32\SpectralDistortion.aaxplugin --out .\build-win\aax\bin\SpectralDistortion.aaxplugin\Contents\Win32\SpectralDistortion.aaxplugin
+REM --wraptool sign --verbose --account XXXXX --wcguid XXXXX --keyfile XXXXX.p12 --keypassword XXXXX --in .\build-win\aax\bin\SpectralDistortion.aaxplugin\Contents\x64\SpectralDistortion.aaxplugin --out .\build-win\aax\bin\SpectralDistortion.aaxplugin\Contents\x64\SpectralDistortion.aaxplugin
 
 if %ZIP% == 0 (
 REM - Make Installer (InnoSetup)
@@ -105,11 +105,11 @@ echo Making Installer ...
   REM if exist "%ProgramFiles(x86)%" (goto 64-Bit-is) else (goto 32-Bit-is)
 
   REM :32-Bit-is
-  REM REM "%ProgramFiles%\Inno Setup 6\iscc" /Q ".\installer\OperateursSpectraux.iss"
+  REM REM "%ProgramFiles%\Inno Setup 6\iscc" /Q ".\installer\SpectralDistortion.iss"
   REM goto END-is
 
   REM :64-Bit-is
-  "%ProgramFiles(x86)%\Inno Setup 6\iscc" /Q ".\installer\OperateursSpectraux.iss"
+  "%ProgramFiles(x86)%\Inno Setup 6\iscc" /Q ".\installer\SpectralDistortion.iss"
   if %ERRORLEVEL% neq 0 (
     echo ERROR: installer build failed
     exit /B 1
@@ -119,11 +119,11 @@ echo Making Installer ...
   REM :END-is
 
   REM - Codesign Installer for Windows 8+
-  REM -"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Bin\signtool.exe" sign /f "XXXXX.p12" /p XXXXX /d "OperateursSpectraux Installer" ".\installer\OperateursSpectraux Installer.exe"
+  REM -"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Bin\signtool.exe" sign /f "XXXXX.p12" /p XXXXX /d "SpectralDistortion Installer" ".\installer\SpectralDistortion Installer.exe"
 
   REM -if %1 == 1 (
-  REM -copy ".\installer\OperateursSpectraux Installer.exe" ".\installer\OperateursSpectraux Demo Installer.exe"
-  REM -del ".\installer\OperateursSpectraux Installer.exe"
+  REM -copy ".\installer\SpectralDistortion Installer.exe" ".\installer\SpectralDistortion Demo Installer.exe"
+  REM -del ".\installer\SpectralDistortion Installer.exe"
   REM -)
 
   echo Making Zip File of Installer ...

@@ -40,7 +40,7 @@ def main():
     print("  build-win directory not found!")
 
   # Debug: check VST3 bundle structure
-  vst3_bundle = build_dir + "\\OperateursSpectraux.vst3"
+  vst3_bundle = build_dir + "\\SpectralDistortion.vst3"
   if os.path.exists(vst3_bundle):
     print("=== VST3 bundle structure ===")
     for root, dirs, files in os.walk(vst3_bundle):
@@ -61,16 +61,16 @@ def main():
   zf = zipfile.ZipFile(projectpath + "\\build-win\\out\\" + zipname + ".zip", mode="w")
 
   if not zip:
-    installer = "\\build-win\\installer\\OperateursSpectraux Installer.exe"
+    installer = "\\build-win\\installer\\SpectralDistortion Installer.exe"
 
     if demo:
-      installer = "\\build-win\\installer\\OperateursSpectraux Demo Installer.exe"
+      installer = "\\build-win\\installer\\SpectralDistortion Demo Installer.exe"
 
     files = [
       projectpath + installer,
       projectpath + "\\installer\\changelog.txt",
       projectpath + "\\installer\\known-issues.txt",
-      projectpath + "\\build-win\\manual\\OperateursSpectraux manual.pdf"
+      projectpath + "\\build-win\\manual\\SpectralDistortion manual.pdf"
     ]
 
     for f in files:
@@ -78,14 +78,14 @@ def main():
       zf.write(f, os.path.basename(f), zipfile.ZIP_DEFLATED)
   else:
     # Add VST3 bundle with folder structure preserved
-    vst3_bundle = projectpath + "\\build-win\\OperateursSpectraux.vst3"
+    vst3_bundle = projectpath + "\\build-win\\SpectralDistortion.vst3"
     if os.path.exists(vst3_bundle):
-      add_folder_to_zip(zf, vst3_bundle, "OperateursSpectraux.vst3")
+      add_folder_to_zip(zf, vst3_bundle, "SpectralDistortion.vst3")
 
     # Add standalone executables
     files = [
-      projectpath + "\\build-win\\OperateursSpectraux_x64.exe",
-      projectpath + "\\build-win\\OperateursSpectraux_ARM64EC.exe",
+      projectpath + "\\build-win\\SpectralDistortion_x64.exe",
+      projectpath + "\\build-win\\SpectralDistortion_ARM64EC.exe",
     ]
 
     for f in files:
@@ -96,11 +96,11 @@ def main():
     # Add CLAP files - check postbuild location first, then build output
     clap_files = [
       # Postbuild locations
-      (projectpath + "\\build-win\\OperateursSpectraux_x64.clap", "OperateursSpectraux_x64.clap"),
-      (projectpath + "\\build-win\\OperateursSpectraux_ARM64EC.clap", "OperateursSpectraux_ARM64EC.clap"),
+      (projectpath + "\\build-win\\SpectralDistortion_x64.clap", "SpectralDistortion_x64.clap"),
+      (projectpath + "\\build-win\\SpectralDistortion_ARM64EC.clap", "SpectralDistortion_ARM64EC.clap"),
       # Build output locations (fallback)
-      (projectpath + "\\build-win\\clap\\x64\\Release\\OperateursSpectraux.clap", "OperateursSpectraux_x64.clap"),
-      (projectpath + "\\build-win\\clap\\ARM64EC\\Release\\OperateursSpectraux.clap", "OperateursSpectraux_ARM64EC.clap"),
+      (projectpath + "\\build-win\\clap\\x64\\Release\\SpectralDistortion.clap", "SpectralDistortion_x64.clap"),
+      (projectpath + "\\build-win\\clap\\ARM64EC\\Release\\SpectralDistortion.clap", "SpectralDistortion_ARM64EC.clap"),
     ]
 
     added_claps = set()
@@ -117,12 +117,12 @@ def main():
   zf = zipfile.ZipFile(projectpath + "\\build-win\\out\\" + zipname + "-pdbs.zip", mode="w")
 
   files = [
-    projectpath + "\\build-win\\pdbs\\OperateursSpectraux-vst3_x64.pdb",
-    projectpath + "\\build-win\\pdbs\\OperateursSpectraux-vst3_ARM64EC.pdb",
-    projectpath + "\\build-win\\pdbs\\OperateursSpectraux-app_x64.pdb",
-    projectpath + "\\build-win\\pdbs\\OperateursSpectraux-app_ARM64EC.pdb",
-    projectpath + "\\build-win\\pdbs\\OperateursSpectraux-clap_x64.pdb",
-    projectpath + "\\build-win\\pdbs\\OperateursSpectraux-clap_ARM64EC.pdb"
+    projectpath + "\\build-win\\pdbs\\SpectralDistortion-vst3_x64.pdb",
+    projectpath + "\\build-win\\pdbs\\SpectralDistortion-vst3_ARM64EC.pdb",
+    projectpath + "\\build-win\\pdbs\\SpectralDistortion-app_x64.pdb",
+    projectpath + "\\build-win\\pdbs\\SpectralDistortion-app_ARM64EC.pdb",
+    projectpath + "\\build-win\\pdbs\\SpectralDistortion-clap_x64.pdb",
+    projectpath + "\\build-win\\pdbs\\SpectralDistortion-clap_ARM64EC.pdb"
   ]
 
   for f in files:

@@ -26,7 +26,7 @@ if [ "$VERSION" == "" ]; then
   exit 1
 fi
 
-PRODUCT_NAME=OperateursSpectraux
+PRODUCT_NAME=SpectralDistortion
 
 # locations
 PRODUCTS="build-mac/Release"

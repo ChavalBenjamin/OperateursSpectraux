@@ -2,11 +2,11 @@
 
 iPlug2 plugin project. This document describes choices in this project's structure that are not obvious from the iPlug2 framework docs.
 
-> This file is duplicated by `../duplicate.py` along with the rest of the project, and the project-name string-rewrite pass runs over it — so `OperateursSpectraux.cpp` etc. resolve to the new project's filenames after duplication.
+> This file is duplicated by `../duplicate.py` along with the rest of the project, and the project-name string-rewrite pass runs over it — so `SpectralDistortion.cpp` etc. resolve to the new project's filenames after duplication.
 
 ## UI: responsive IGraphics layout
 
-The UI in `OperateursSpectraux.cpp` is a **resizable / responsive IGraphics** example. The pattern is the important thing to preserve when extending it.
+The UI in `SpectralDistortion.cpp` is a **resizable / responsive IGraphics** example. The pattern is the important thing to preserve when extending it.
 
 Key pieces:
 
@@ -40,7 +40,7 @@ Controls that are not tagged (e.g. the panel background, corner resizer) are han
 
 ## Files of interest
 
-- `OperateursSpectraux.cpp` / `.h` — plugin class, parameters (`EParams`), control tags (`ECtrlTags`), `ProcessBlock`, `mLayoutFunc`.
+- `SpectralDistortion.cpp` / `.h` — plugin class, parameters (`EParams`), control tags (`ECtrlTags`), `ProcessBlock`, `mLayoutFunc`.
 - `config.h` — plugin metadata, channel I/O, size constraints, format-specific IDs (`PLUG_UNIQUE_ID`, `PLUG_MFR_ID`, `AAX_TYPE_IDS`, etc.).
 - `projects/` — per-format IDE projects (Xcode, VS, WAM makefiles).
 - `resources/` — Info.plists, icons, fonts, images. Fonts referenced via `*_FN` macros in `config.h` (e.g. `ROBOTO_FN`).

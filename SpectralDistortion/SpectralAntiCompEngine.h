@@ -36,10 +36,10 @@ enum EParams
 using namespace iplug;
 using namespace igraphics;
 
-class OperateursSpectraux final : public iplug::Plugin
+class SpectralDistortion final : public iplug::Plugin
 {
 public:
-  OperateursSpectraux(const InstanceInfo& info);
+  SpectralDistortion(const InstanceInfo& info);
 
   void OnIdle() override;
   void OnUIOpen() override { SyncUIToState(); }

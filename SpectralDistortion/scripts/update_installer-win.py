@@ -49,24 +49,24 @@ def main():
       line="AppVersion=" + config['FULL_VER_STR'] + "\n"
     if "OutputBaseFilename" in line:
       if demo:
-        line="OutputBaseFilename=OperateursSpectraux Demo Installer\n"
+        line="OutputBaseFilename=SpectralDistortion Demo Installer\n"
       else:
-        line="OutputBaseFilename=OperateursSpectraux Installer\n"
+        line="OutputBaseFilename=SpectralDistortion Installer\n"
         
     if is_readme_entry(line):
       line=readme_entry(demo)
     
     if "WelcomeLabel1" in line:
      if demo:
-       line="WelcomeLabel1=Welcome to the OperateursSpectraux Demo installer\n"
+       line="WelcomeLabel1=Welcome to the SpectralDistortion Demo installer\n"
      else:
-       line="WelcomeLabel1=Welcome to the OperateursSpectraux installer\n"
+       line="WelcomeLabel1=Welcome to the SpectralDistortion installer\n"
        
     if "SetupWindowTitle" in line:
      if demo:
-       line="SetupWindowTitle=OperateursSpectraux Demo installer\n"
+       line="SetupWindowTitle=SpectralDistortion Demo installer\n"
      else:
-       line="SetupWindowTitle=OperateursSpectraux installer\n"
+       line="SetupWindowTitle=SpectralDistortion installer\n"
        
     sys.stdout.write(line) 
     

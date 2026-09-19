@@ -29,8 +29,8 @@ SCRIPTS=$IPLUG2_ROOT/Scripts
 CODESIGN=0
 
 # macOS codesigning/notarization
-NOTARIZE_BUNDLE_ID=com.BEnjaminChaval.OperateursSpectraux
-NOTARIZE_BUNDLE_ID_DEMO=com.BEnjaminChaval.OperateursSpectraux.DEMO
+NOTARIZE_BUNDLE_ID=com.BEnjaminChaval.SpectralDistortion
+NOTARIZE_BUNDLE_ID_DEMO=com.BEnjaminChaval.SpectralDistortion.DEMO
 APP_SPECIFIC_ID=TODO
 APP_SPECIFIC_PWD=TODO
 
@@ -397,8 +397,8 @@ mv ./build-mac/*.zip ./build-mac/out
 
 #if [ $DEMO == 1 ]
 #then
-#  git checkout installer/OperateursSpectraux.iss
-#  git checkout installer/OperateursSpectraux.pkgproj
+#  git checkout installer/SpectralDistortion.iss
+#  git checkout installer/SpectralDistortion.pkgproj
 #  git checkout resources/img/AboutBox.png
 #fi
 

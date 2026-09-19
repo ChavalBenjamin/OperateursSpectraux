@@ -1,4 +1,4 @@
-# OperateursSpectraux License
+# SpectralDistortion License
 
 **THIS IS A PLACEHOLDER LICENCE PROVIDED WITH IPLUG2**
 
@@ -26,7 +26,7 @@ If you purchased this product you are entitled to free updates until the next ma
 
 If you purchased this product you may transfer your license to another person. As the original owner you are required to contact the developer with the details of the license transfer, so that the new owner can receive the updates and support attached to the license. Upon transferring a license the original owner must remove any copies from their machines and are no longer permitted to use the software.
 
-OperateursSpectraux is (C) Copyright BEnjaminChaval 2019
+SpectralDistortion is (C) Copyright BEnjaminChaval 2019
 
 http://www.acmeinc.com
 

@@ -1,6 +1,6 @@
-# OperateursSpectraux
+# SpectralDistortion
 
-Thanks for purchasing OperateursSpectraux.
+Thanks for purchasing SpectralDistortion.
 
 support@acmeinc.com
 
