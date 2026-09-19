@@ -30,6 +30,7 @@ enum EParams
   kParamHarmonicInjection, // 0-100% : injection harmonique (x2/x3/x4...)
   kParamDecayExponent,    // 0.2-1.0 : decroissance + nombre d'harmoniques injectees
   kParamTempDrive,        // 0-100% : distorsion temporelle (waveshaping)
+  kParamDryWet,           // 0-100% : melange signal sec (retarde, compense) / traite, courbe exp
   kParamLimiterThreshold, // dB - securite finale
   kNumParams
 };
@@ -79,6 +80,15 @@ private:
   // Size) ne doit jamais s'executer en meme temps que Process() (thread
   // audio) - lecon tiree d'un crash reproductible a grande taille FFT.
   std::mutex mEngineMutex;
+
+  // Ligne a retard du signal sec, alignee EXACTEMENT sur la latence du
+  // traitement (une fenetre FFT), pour que Dry/Wet ne cree pas de
+  // decalage temporel - le Dry/Wet de l'hote ne compense pas cette
+  // latence, d'ou la necessite de le faire nous-memes, en interne.
+  std::mutex mDryDelayMutex;
+  std::vector<float> mDryDelayL, mDryDelayR;
+  int mDryDelayPos = 0;
+  int mDryDelaySize = 1;
 
   std::mutex mCurveMutex;
   std::vector<float> mSharedCurve;

@@ -18,6 +18,7 @@ SpectralDistortion::SpectralDistortion(const InstanceInfo& info)
   GetParam(kParamHarmonicInjection)->InitDouble("Injection", 0., 0., 100., 0.1, "%");
   GetParam(kParamDecayExponent)->InitDouble("Decroiss.", 1., 0.2, 1., 0.001);
   GetParam(kParamTempDrive)->InitDouble("Drive", 0., 0., 100., 0.1, "%");
+  GetParam(kParamDryWet)->InitDouble("Dry/Wet", 100., 0., 100., 0.1, "%");
   GetParam(kParamLimiterThreshold)->InitDouble("Limiteur", 0., -24., 0., 0.1, "dB");
 
   mDrawnShapeStorage.assign(128, 0.f);
@@ -42,21 +43,23 @@ SpectralDistortion::SpectralDistortion(const InstanceInfo& info)
 
     // --- Rangee du haut : reglages generaux ---
     IRECT topRow = bounds.GetFromTop(100.f).GetPadded(-10.f);
-    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 6).GetCentredInside(110.f, 44.f), kParamFFTSize, "FFT Size");
+    mParamControls[kParamFFTSize] = new IVMenuButtonControl(topRow.GetGridCell(0, 0, 1, 7).GetCentredInside(110.f, 44.f), kParamFFTSize, "FFT Size");
     pGraphics->AttachControl(mParamControls[kParamFFTSize]);
-    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 6).GetCentredInside(110.f, 44.f), kParamOverlap, "Overlap");
+    mParamControls[kParamOverlap] = new IVMenuButtonControl(topRow.GetGridCell(0, 1, 1, 7).GetCentredInside(110.f, 44.f), kParamOverlap, "Overlap");
     pGraphics->AttachControl(mParamControls[kParamOverlap]);
-    mParamControls[kParamHarmonicInjection] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 6).GetCentredInside(90.f), kParamHarmonicInjection, "Injection", bonusStyle);
+    mParamControls[kParamHarmonicInjection] = new IVKnobControl(topRow.GetGridCell(0, 2, 1, 7).GetCentredInside(90.f), kParamHarmonicInjection, "Injection", bonusStyle);
     pGraphics->AttachControl(mParamControls[kParamHarmonicInjection]);
-    mParamControls[kParamDecayExponent] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 6).GetCentredInside(90.f), kParamDecayExponent, "Decroiss.", bonusStyle);
+    mParamControls[kParamDecayExponent] = new IVKnobControl(topRow.GetGridCell(0, 3, 1, 7).GetCentredInside(90.f), kParamDecayExponent, "Decroiss.", bonusStyle);
     pGraphics->AttachControl(mParamControls[kParamDecayExponent]);
-    mParamControls[kParamTempDrive] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 6).GetCentredInside(90.f), kParamTempDrive, "Drive", bonusStyle);
+    mParamControls[kParamTempDrive] = new IVKnobControl(topRow.GetGridCell(0, 4, 1, 7).GetCentredInside(90.f), kParamTempDrive, "Drive", bonusStyle);
     pGraphics->AttachControl(mParamControls[kParamTempDrive]);
+    mParamControls[kParamDryWet] = new IVKnobControl(topRow.GetGridCell(0, 5, 1, 7).GetCentredInside(90.f), kParamDryWet, "Dry/Wet", bonusStyle);
+    pGraphics->AttachControl(mParamControls[kParamDryWet]);
 
     IVStyle limiterStyle = DEFAULT_STYLE.WithLabelText(IText(12.f, COLOR_WHITE))
                                          .WithColor(EVColor::kFG, IColor(255, 200, 30, 30))
                                          .WithColor(EVColor::kPR, IColor(255, 230, 50, 50));
-    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 5, 1, 6).GetCentredInside(90.f), kParamLimiterThreshold, "LIMITEUR", limiterStyle);
+    mParamControls[kParamLimiterThreshold] = new IVKnobControl(topRow.GetGridCell(0, 6, 1, 7).GetCentredInside(90.f), kParamLimiterThreshold, "LIMITEUR", limiterStyle);
     pGraphics->AttachControl(mParamControls[kParamLimiterThreshold]);
 
     // --- Rangee des 6 parametres de courbe ---
@@ -145,9 +148,22 @@ void SpectralDistortion::UpdateFFTConfig()
   int overlapIdx = (int)GetParam(kParamOverlap)->Value();
   int overlap = (overlapIdx == 0) ? 2 : 4;
 
-  std::lock_guard<std::mutex> lock(mEngineMutex);
-  mDistortL.Init(fftSize, overlap, GetSampleRate());
-  mDistortR.Init(fftSize, overlap, GetSampleRate());
+  {
+    std::lock_guard<std::mutex> lock(mEngineMutex);
+    mDistortL.Init(fftSize, overlap, GetSampleRate());
+    mDistortR.Init(fftSize, overlap, GetSampleRate());
+  }
+
+  // Ligne a retard du signal sec, alignee EXACTEMENT sur la latence du
+  // traitement - verrouillee separement (redimensionnee ici, thread
+  // principal ; lue/ecrite par ProcessBlock, thread audio).
+  {
+    std::lock_guard<std::mutex> lock(mDryDelayMutex);
+    mDryDelaySize = std::max(1, mDistortL.GetLatencySamples());
+    mDryDelayL.assign(mDryDelaySize, 0.f);
+    mDryDelayR.assign(mDryDelaySize, 0.f);
+    mDryDelayPos = 0;
+  }
 }
 
 void SpectralDistortion::UpdateEngine()
@@ -261,6 +277,30 @@ void SpectralDistortion::ProcessBlock(sample** inputs, sample** outputs, int nFr
 
     mDistortL.Process(bufL, outL, n);
     mDistortR.Process(bufR, outR, n);
+  }
+
+  // Dry/Wet : le signal sec passe par sa PROPRE ligne a retard (alignee
+  // sur la latence du traitement) avant d'etre melange - le Dry/Wet de
+  // l'hote (Reaper) ne compense pas cette latence, d'ou la necessite de
+  // le faire en interne. Courbe exponentielle : plus de resolution dans
+  // le bas de la course, la ou l'effet change le plus audiblement.
+  {
+    float wetRaw = (float)(GetParam(kParamDryWet)->Value() / 100.0);
+    constexpr float kExponent = 3.f;
+    float wetAmount = std::pow(wetRaw, kExponent);
+
+    std::lock_guard<std::mutex> lock(mDryDelayMutex);
+    for (int i = 0; i < n; i++)
+    {
+      float dryL = mDryDelayL[mDryDelayPos];
+      float dryR = mDryDelayR[mDryDelayPos];
+      mDryDelayL[mDryDelayPos] = bufL[i];
+      mDryDelayR[mDryDelayPos] = bufR[i];
+      mDryDelayPos = (mDryDelayPos + 1) % mDryDelaySize;
+
+      outL[i] = dryL * (1.f - wetAmount) + outL[i] * wetAmount;
+      outR[i] = dryR * (1.f - wetAmount) + outR[i] * wetAmount;
+    }
   }
 
   mLimiter.ProcessStereo(outL, outR, n);
