@@ -211,7 +211,7 @@ private:
     // toute la course du bouton.
     if (mHarmonicInjection > 0.001f)
     {
-      int maxHarmonic = 4 + (int)std::round((1.f - mDecayExponent) * 10.f);
+      int maxHarmonic = 4 + (int)std::round((1.f - mDecayExponent) * 15.f);
       std::copy(mMagBuf.begin(), mMagBuf.begin() + numBins + 1, mMagInjected.begin());
       std::fill(mMaxInjectionBuf.begin(), mMaxInjectionBuf.begin() + numBins + 1, 0.f);
 
